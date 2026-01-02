@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-YouTube Downloader Web Interface
+YTDL Web Interface
 
 Flask-based web interface for multi-platform video downloads.
 Features:
@@ -16,15 +16,33 @@ import json
 import threading
 import sys
 import uuid
-import tempfile
 import subprocess
-import platform
+import logging
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from pathlib import Path
 
 # Add current directory to Python path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    import config
+except ImportError:
+    # Fallback if config.py is not available
+    class config:
+        DEBUG_MODE = False
+
+# Configure logging based on DEBUG_MODE
+logging.basicConfig(
+    level=logging.DEBUG if config.DEBUG_MODE else logging.WARNING,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Disable werkzeug logs when DEBUG_MODE is off
+if not config.DEBUG_MODE:
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)  # Only show errors, not INFO
 
 from flask import Flask, render_template, request, jsonify, send_file, make_response, Response
 import time
@@ -45,7 +63,7 @@ def progress_sse(download_id: str):
             elif download_id in completed_downloads:
                 progress = completed_downloads[download_id]
             else:
-                yield f"event: error\ndata: Download not found\n\n"
+                yield "event: error\ndata: Download not found\n\n"
                 break
             # Only send if progress changed
             if progress != last_progress:
@@ -77,8 +95,26 @@ def progress_sse(download_id: str):
                 break
             time.sleep(1)
     return Response(event_stream(), mimetype='text/event-stream')
+# Generate or load secret key securely
+def get_secret_key():
+    """Get secret key from environment or generate a persistent one."""
+    secret_key = os.environ.get('FLASK_SECRET_KEY')
+    if secret_key:
+        return secret_key.encode() if isinstance(secret_key, str) else secret_key
+    
+    # Generate a persistent key file for development
+    key_file = Path('.secret_key')
+    if key_file.exists():
+        return key_file.read_bytes()
+    else:
+        # Generate new key and save it
+        new_key = os.urandom(32)
+        key_file.write_bytes(new_key)
+        key_file.chmod(0o600)  # Restrict permissions
+        return new_key
+
 app.config.update(
-    SECRET_KEY=os.urandom(24),
+    SECRET_KEY=get_secret_key(),
     MAX_CONTENT_LENGTH=16 * 1024 * 1024,  # 16MB max
     JSON_SORT_KEYS=False,
     JSONIFY_PRETTYPRINT_REGULAR=False,  # Optimize JSON responses
@@ -87,6 +123,49 @@ app.config.update(
 # Global variables for tracking downloads (optimized structure)
 active_downloads: Dict[str, Dict[str, Any]] = {}
 completed_downloads: Dict[str, Dict[str, Any]] = {}
+
+# Simple cache for video info to reduce repeated API calls
+_video_info_cache: Dict[str, Tuple[Dict[str, Any], float]] = {}
+_cache_ttl = 300  # 5 minutes cache TTL
+
+def _get_cached_video_info(url: str) -> Optional[Dict[str, Any]]:
+    """
+    Get cached video info if available and not expired.
+    
+    Args:
+        url: Video URL to look up in cache
+        
+    Returns:
+        Cached video info dict if found and valid, None otherwise
+    """
+    if url in _video_info_cache:
+        info, timestamp = _video_info_cache[url]
+        if time.time() - timestamp < _cache_ttl:
+            return info
+        else:
+            # Remove expired cache entry
+            del _video_info_cache[url]
+    return None
+
+def _cache_video_info(url: str, info: Dict[str, Any]) -> None:
+    """
+    Cache video info with timestamp.
+    
+    Args:
+        url: Video URL as cache key
+        info: Video information dict to cache
+        
+    Note:
+        Automatically manages cache size (max 100 entries)
+        and removes oldest entries when limit is reached.
+    """
+    _video_info_cache[url] = (info, time.time())
+    # Limit cache size to prevent memory issues
+    if len(_video_info_cache) > 100:
+        # Remove oldest entries
+        sorted_items = sorted(_video_info_cache.items(), key=lambda x: x[1][1])
+        for old_url, _ in sorted_items[:20]:
+            del _video_info_cache[old_url]
 
 class WebDownloader(YouTubeDownloader):
     """Web version of the multi-platform downloader."""
@@ -162,9 +241,11 @@ class WebDownloader(YouTubeDownloader):
                 completed_downloads[self.download_id] = download_info.copy()
                 del active_downloads[self.download_id]
         except Exception as e:
-            print(f'[ERROR] Exception in _web_progress_hook: {e}')
-            import traceback
-            traceback.print_exc()
+            logger.error(f'Exception in _web_progress_hook: {e}', exc_info=True)
+            # Mark download as error if exception occurs
+            if self.download_id in active_downloads:
+                active_downloads[self.download_id]['status'] = 'error'
+                active_downloads[self.download_id]['error'] = str(e)
 
 
 # Global downloader instance
@@ -189,6 +270,187 @@ def validate_safe_path(requested_path: str, base_dir: Path) -> Optional[Path]:
     except (ValueError, Exception):
         return None
 
+def validate_url(url: str) -> bool:
+    """
+    Validate URL to prevent SSRF attacks.
+    Only allow http:// and https:// schemes and block private IP ranges.
+    """
+    try:
+        from urllib.parse import urlparse
+        import ipaddress
+        
+        parsed = urlparse(url)
+        
+        # Only allow http and https schemes
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        
+        # Check for empty hostname
+        if not parsed.hostname:
+            return False
+        
+        # Block localhost and private IP ranges
+        hostname = parsed.hostname.lower()
+        
+        # Block localhost variations
+        localhost_patterns = ['localhost', '127.', '0.0.0.0', '::1', '0:0:0:0:0:0:0:1']
+        if any(hostname.startswith(pattern) for pattern in localhost_patterns):
+            return False
+        
+        # Try to resolve as IP address and check if it's private
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+                return False
+        except ValueError:
+            # Not an IP address, check domain patterns
+            pass
+        
+        # Block internal domains
+        internal_domains = ['.local', '.internal', '.corp', '.lan', '.localdomain']
+        if any(hostname.endswith(domain) for domain in internal_domains):
+            return False
+        
+        # Block common internal IP ranges and hostnames
+        blocked_hosts = ['metadata.google.internal', 'kubernetes.default']
+        if hostname in blocked_hosts:
+            return False
+        
+        return True
+    except Exception:
+        return False
+
+
+@app.route('/api/thumbnail', methods=['GET'])
+def proxy_thumbnail():
+    """Proxy a remote thumbnail via localhost to avoid browser tracking protection blocks.
+
+    Query params:
+      - url: remote image URL
+    """
+    try:
+        raw_url = (request.args.get('url') or '').strip()
+        insecure_ssl = (request.args.get('insecure_ssl') or '').strip() in ('1', 'true', 'True', 'yes', 'on')
+
+        # If the caller didn't URL-encode the remote URL, Werkzeug will split
+        # it at '&' and we only receive a truncated value. Reconstruct from
+        # the raw query string by taking everything after 'url='.
+        try:
+            if raw_url and request.query_string:
+                qs = request.query_string.decode('utf-8', errors='ignore')
+                if 'url=' in qs:
+                    after = qs.split('url=', 1)[1]
+                    # If there are additional query parameters, they are
+                    # likely part of the remote URL (unencoded '&').
+                    if '&' in after and '&' not in raw_url:
+                        from urllib.parse import unquote_plus
+                        raw_url = unquote_plus(after).strip()
+        except Exception:
+            pass
+
+        if not raw_url:
+            return jsonify({'error': 'url is required'}), 400
+
+        # Basic length guard
+        if len(raw_url) > 4096:
+            return jsonify({'error': 'url too long'}), 400
+
+        if not validate_url(raw_url):
+            return jsonify({'error': 'Invalid or unsafe URL'}), 400
+
+        from urllib.request import Request, urlopen
+        from urllib.error import URLError, HTTPError
+        import ssl
+        from urllib.parse import urlparse
+
+        parsed = urlparse(raw_url)
+        referer = 'https://vk.com/'
+        host = (parsed.hostname or '').lower()
+        if host:
+            # VK thumbnails are often hosted on *.userapi.com but require vk.com referer.
+            if host.endswith('userapi.com') or host.endswith('vkuserapi.com') or 'vk.com' in host:
+                referer = 'https://vk.com/'
+            elif 'rutube' in host:
+                referer = 'https://rutube.ru/'
+            elif parsed.scheme:
+                referer = f"{parsed.scheme}://{host}/"
+
+        req = Request(
+            raw_url,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Referer': referer,
+                'Connection': 'keep-alive',
+            },
+        )
+
+        # Hard limits to avoid huge responses
+        max_bytes = 8 * 1024 * 1024  # 8MB
+
+        def _fetch(context):
+            with urlopen(req, timeout=15, context=context) as resp:
+                content_type = resp.headers.get('Content-Type', 'image/jpeg')
+                data = resp.read(max_bytes + 1)
+                return content_type, data
+
+        ctx = None
+        if insecure_ssl:
+            try:
+                ctx = ssl._create_unverified_context()
+            except Exception:
+                ctx = None
+
+        try:
+            content_type, data = _fetch(ctx)
+        except Exception as e:
+            # urllib can raise ssl.SSLError directly, or wrap it in URLError.
+            err_str = str(e)
+            is_cert_verify = (
+                'CERTIFICATE_VERIFY_FAILED' in err_str
+                or 'certificate verify failed' in err_str.lower()
+            )
+
+            # Retry once without verification if not already using unverified context.
+            if is_cert_verify and not insecure_ssl:
+                try:
+                    content_type, data = _fetch(ssl._create_unverified_context())
+                except Exception as e2:
+                    logger.warning(f"SSL retry failed for thumbnail: {raw_url} - {e2}")
+                    raise
+            else:
+                # Propagate; outer handler will format response
+                raise
+
+        if len(data) > max_bytes:
+            return jsonify({'error': 'Image too large'}), 413
+
+        out = make_response(data)
+        out.headers['Content-Type'] = content_type
+        out.headers['Cache-Control'] = 'public, max-age=3600'
+        out.headers['X-Content-Type-Options'] = 'nosniff'
+        out.headers['X-Frame-Options'] = 'DENY'
+        out.headers['Referrer-Policy'] = 'no-referrer'
+        return out
+
+    except (HTTPError, URLError) as e:
+        # If SSL verify failed and caller didn't request insecure_ssl, tell them
+        # (and we also retry internally once; this is for the remaining failure).
+        if 'CERTIFICATE_VERIFY_FAILED' in err_str or 'certificate verify failed' in err_str.lower():
+            logger.warning(f"SSL verification failed for thumbnail: {raw_url} - {e}")
+            return jsonify({
+                'error': f'SSL certificate verification failed while fetching thumbnail: {e}',
+                'url': raw_url,
+                'hint': 'Enable Insecure SSL in UI or append &insecure_ssl=1'
+            }), 502
+
+        logger.error(f"Failed to fetch thumbnail: {raw_url} - {e}")
+        return jsonify({'error': f'Failed to fetch thumbnail: {e}', 'url': raw_url}), 502
+    except Exception as e:
+        logger.error(f"Unexpected error fetching thumbnail: {raw_url} - {e}", exc_info=True)
+        return jsonify({'error': f'Unexpected error: {e}', 'url': raw_url}), 500
+
 # Cancel download endpoint
 @app.route('/api/cancel_download', methods=['POST'])
 def cancel_download():
@@ -208,12 +470,11 @@ def index():
 @app.route('/api/video_info', methods=['POST'])
 def get_video_info():
     """Get video information efficiently with timeout handling."""
-    import signal
     import threading
-    
+
     def timeout_handler(signum, frame):
         raise TimeoutError("Video info request timed out")
-    
+
     try:
         data = request.get_json()
         if not data or 'url' not in data:
@@ -230,6 +491,20 @@ def get_video_info():
             resp = make_response(json.dumps({'error': 'URL cannot be empty'}), 400)
             resp.headers['Content-Type'] = 'application/json; charset=utf-8'
             return resp
+        
+        # Validate URL to prevent SSRF attacks
+        if not validate_url(url):
+            resp = make_response(json.dumps({'error': 'Invalid or unsafe URL'}), 400)
+            resp.headers['Content-Type'] = 'application/json; charset=utf-8'
+            return resp
+
+        # Check cache first for performance
+        cached_info = _get_cached_video_info(url)
+        if cached_info:
+            resp = make_response(json.dumps(cached_info), 200)
+            resp.headers['Content-Type'] = 'application/json; charset=utf-8'
+            resp.headers['X-Cache'] = 'HIT'
+            return resp
 
         # Allow client to request insecure SSL (skip certificate verification)
         insecure_ssl = bool(data.get('insecure_ssl')) if data else False
@@ -240,17 +515,14 @@ def get_video_info():
         
         def get_info_thread():
             try:
-                print(f"[DEBUG] Getting video info for URL: {url}")
-                # Temporarily set insecure flag for this downloader
+                        # Temporarily set insecure flag for this downloader
                 prev_insecure = getattr(downloader, 'insecure_ssl', False)
                 try:
                     downloader.insecure_ssl = insecure_ssl
                     info_result[0] = downloader.get_video_info(url)
                 finally:
                     downloader.insecure_ssl = prev_insecure
-                print(f"[DEBUG] Video info retrieved successfully")
             except Exception as e:
-                print(f"[DEBUG] Error in get_info_thread: {e}")
                 error_result[0] = str(e)
         
         thread = threading.Thread(target=get_info_thread, daemon=True)
@@ -273,13 +545,40 @@ def get_video_info():
             resp.headers['Content-Type'] = 'application/json; charset=utf-8'
             return resp
             
+        # Resolve best thumbnail (fallback to largest from "thumbnails" list)
+        def _pick_best_thumbnail(video_data: Dict[str, Any]) -> str:
+            direct = video_data.get('thumbnail')
+            if direct:
+                return direct
+
+            thumbs = video_data.get('thumbnails') or []
+            try:
+                # Prefer the largest thumbnail by area if width/height provided
+                best = max(
+                    thumbs,
+                    key=lambda t: (t or {}).get('width', 0) * (t or {}).get('height', 0),
+                )
+                if isinstance(best, dict):
+                    return best.get('url') or best.get('src') or ''
+            except Exception:
+                pass
+            # Fallback: return first available url/src
+            for t in thumbs:
+                if isinstance(t, dict):
+                    url = t.get('url') or t.get('src')
+                    if url:
+                        return url
+                elif isinstance(t, str):
+                    return t
+            return ''
+
         # Extract and optimize video information
         video_info = {
             'title': info.get('title', 'Unknown'),
             'duration': info.get('duration_string', 'Unknown'),
             'uploader': info.get('uploader', 'Unknown'),
             'view_count': info.get('view_count', 0),
-            'thumbnail': info.get('thumbnail', ''),
+            'thumbnail': _pick_best_thumbnail(info),
         }
         # Extract available qualities efficiently with improved resolution detection
         formats = info.get('formats', [])
@@ -290,35 +589,58 @@ def get_video_info():
         
         # Track available audio languages
         audio_languages = {}  # {language_code: language_name}
-        
+
+        def _extract_height(fmt: Dict[str, Any]) -> Optional[int]:
+            """Best-effort resolution detection from various fields."""
+            if fmt.get('height') and isinstance(fmt.get('height'), int):
+                return fmt['height']
+            # Resolution string like "3840x2160"
+            res = fmt.get('resolution') or fmt.get('res')
+            if isinstance(res, str) and 'x' in res:
+                try:
+                    parts = res.lower().split('x')
+                    if len(parts) == 2:
+                        return int(parts[1])
+                except Exception:
+                    pass
+            # format_note like "2160p" or "1080p50"
+            note = fmt.get('format_note') or fmt.get('quality')
+            if isinstance(note, str):
+                import re
+                m = re.search(r'(\d{3,4})p', note)
+                if m:
+                    try:
+                        return int(m.group(1))
+                    except ValueError:
+                        pass
+            return None
+
+        def _quality_label(height: int) -> Tuple[str, int]:
+            if height >= 2000:
+                return '4k', 2160
+            if height >= 1350:
+                return '1440p', 1440
+            if height >= 1000:
+                return '1080p', 1080
+            if height >= 650:
+                return '720p', 720
+            if height >= 420:
+                return '480p', 480
+            if height >= 300:
+                return '360p', 360
+            if height >= 200:
+                return '240p', 240
+            if height >= 100:
+                return '144p', 144
+            return '', 0
+
         for fmt in formats:
-            height = fmt.get('height')
-            if height and isinstance(height, int):
-                # Map heights to standard quality names with ranges
-                if height >= 2000:  # 4K range (2160p and above)
-                    qualities.add('4K')
-                    found_resolutions.add(2160)
-                elif height >= 1350:  # 1440p range
-                    qualities.add('1440p')
-                    found_resolutions.add(1440)
-                elif height >= 1000:  # 1080p range
-                    qualities.add('1080p')
-                    found_resolutions.add(1080)
-                elif height >= 650:  # 720p range
-                    qualities.add('720p')
-                    found_resolutions.add(720)
-                elif height >= 420:  # 480p range (420-649)
-                    qualities.add('480p')
-                    found_resolutions.add(480)
-                elif height >= 300:  # 360p range (300-419)
-                    qualities.add('360p')
-                    found_resolutions.add(360)
-                elif height >= 200:  # 240p range
-                    qualities.add('240p')
-                    found_resolutions.add(240)
-                elif height >= 100:  # 144p range
-                    qualities.add('144p')
-                    found_resolutions.add(144)
+            height = _extract_height(fmt)
+            if height:
+                label, canonical_height = _quality_label(height)
+                if label:
+                    qualities.add(label)
+                    found_resolutions.add(canonical_height)
             
             # Extract audio language information
             if fmt.get('acodec') and fmt.get('acodec') != 'none':
@@ -327,13 +649,14 @@ def get_video_info():
                 if lang_code and lang_code != 'unknown':
                     audio_languages[lang_code] = lang_name
         
-        # Debug: Print found resolutions and formats for troubleshooting
-        print(f"DEBUG: Found resolutions: {sorted(found_resolutions, reverse=True)}")
-        print(f"DEBUG: Available qualities: {sorted(qualities, key=lambda x: {'4K': 2160, '1440p': 1440, '1080p': 1080, '720p': 720, '480p': 480, '360p': 360, '240p': 240, '144p': 144}.get(x, 0), reverse=True)}")
-        print(f"DEBUG: Available audio languages: {audio_languages}")
+        # Log available formats for troubleshooting (optional, can be disabled in production)
+        if config.DEBUG_MODE:
+            print(f"Found resolutions: {sorted(found_resolutions, reverse=True)}")
+            print(f"Available qualities: {sorted(qualities, key=lambda x: {'4k': 2160, '1440p': 1440, '1080p': 1080, '720p': 720, '480p': 480, '360p': 360, '240p': 240, '144p': 144}.get(x, 0), reverse=True)}")
+            print(f"Available audio languages: {audio_languages}")
         
         # Sort qualities by resolution
-        quality_order = {'4K': 2160, '1440p': 1440, '1080p': 1080, '720p': 720, '480p': 480, '360p': 360, '240p': 240, '144p': 144}
+        quality_order = {'4k': 2160, '1440p': 1440, '1080p': 1080, '720p': 720, '480p': 480, '360p': 360, '240p': 240, '144p': 144}
         video_info['available_qualities'] = sorted(
             qualities, 
             key=lambda x: quality_order.get(x, 0), 
@@ -346,8 +669,12 @@ def get_video_info():
             for code, name in sorted(audio_languages.items())
         ]
         
-        # Debug: Show available formats for troubleshooting
-        debug_info = downloader.debug_available_formats(url)
+        # Log available formats for troubleshooting if debug mode enabled
+        if config.DEBUG_MODE:
+            downloader.debug_available_formats(url)
+
+        # Cache the result for future requests
+        _cache_video_info(url, video_info)
         
         resp = make_response(json.dumps(video_info), 200)
         resp.headers['Content-Type'] = 'application/json; charset=utf-8'
@@ -372,15 +699,40 @@ def start_download():
             resp = make_response(json.dumps({'error': 'URL cannot be empty'}), 400)
             resp.headers['Content-Type'] = 'application/json; charset=utf-8'
             return resp
+        
+        # Validate URL to prevent SSRF attacks
+        if not validate_url(url):
+            resp = make_response(json.dumps({'error': 'Invalid or unsafe URL'}), 400)
+            resp.headers['Content-Type'] = 'application/json; charset=utf-8'
+            return resp
 
         quality = data.get('quality', 'best')
         audio_only = data.get('audio_only', False)
         audio_language = data.get('audio_language')
         output_name = (data.get('output_name') or '').strip() or None
+        
+        # Validate output_name to prevent path traversal
+        if output_name:
+            # Remove path separators and check for suspicious patterns
+            if any(char in output_name for char in ['/', '\\', '..', ':', '*', '?', '"', '<', '>', '|']):
+                resp = make_response(json.dumps({'error': 'Invalid output filename'}), 400)
+                resp.headers['Content-Type'] = 'application/json; charset=utf-8'
+                return resp
+            # Limit filename length
+            if len(output_name) > 255:
+                resp = make_response(json.dumps({'error': 'Output filename too long (max 255 characters)'}), 400)
+                resp.headers['Content-Type'] = 'application/json; charset=utf-8'
+                return resp
+        
         insecure_ssl = bool(data.get('insecure_ssl'))
+        trim_start = data.get('trim_start')
+        trim_end = data.get('trim_end')
 
-        print(f"[DEBUG] Received output_name for download: {output_name}")
-        print(f"[DEBUG] Received audio_language for download: {audio_language}")
+        if config.DEBUG_MODE:
+            print(f"Received output_name for download: {output_name}")
+            print(f"Received audio_language for download: {audio_language}")
+            if trim_start is not None or trim_end is not None:
+                print(f"Trim parameters: start={trim_start}, end={trim_end}")
 
         download_id = str(uuid.uuid4())
 
@@ -390,6 +742,8 @@ def start_download():
                 downloader.insecure_ssl = insecure_ssl
                 downloader.audio_only = audio_only
                 downloader.audio_language = audio_language
+                downloader.trim_start = trim_start
+                downloader.trim_end = trim_end
                 downloader.set_download_id(download_id)
 
                 if download_id in active_downloads:
@@ -469,8 +823,8 @@ def download_file(download_id: str):
         # If file_path is present but missing on disk, or not provided at all,
         # try to map the download id / filename to an actual file in the downloads directory.
         downloads_dir = Path('./downloads').resolve()
+
         def persist_found_path(found_path: Path):
-            nonlocal file_path, file_info
             file_path = str(found_path)
             # Persist for future requests
             try:
@@ -531,72 +885,43 @@ def download_file(download_id: str):
                     persist_found_path(candidate.resolve())
                     break
 
-        if file_path and os.path.exists(file_path):
-            if request.method == 'HEAD':
-                response = make_response('', 200)
-            else:
-                filename = os.path.basename(file_path)
-                if isinstance(filename, bytes):
-                    filename = filename.decode('utf-8', errors='ignore')
-                try:
-                    response = send_file(file_path, as_attachment=True, download_name=filename)
-                except TypeError:
-                    response = send_file(file_path, as_attachment=True, attachment_filename=filename)
+        if not file_path or not os.path.exists(file_path):
+            return jsonify({'error': 'File not found or no longer available'}), 404
+        
+        # Check file size for security (prevent serving extremely large files)
+        try:
+            file_size = os.path.getsize(file_path)
+            max_file_size = 10 * 1024 * 1024 * 1024  # 10GB limit
+            if file_size > max_file_size:
+                return jsonify({'error': 'File too large to download'}), 413
+        except OSError as size_err:
+            print(f"Error checking file size: {size_err}")
+            return jsonify({'error': 'Error accessing file'}), 500
+        
+        if request.method == 'HEAD':
+            response = make_response('', 200)
+        else:
+            filename = os.path.basename(file_path)
+            if isinstance(filename, bytes):
+                filename = filename.decode('utf-8', errors='ignore')
+            try:
+                response = send_file(file_path, as_attachment=True, download_name=filename)
+            except TypeError:
+                response = send_file(file_path, as_attachment=True, attachment_filename=filename)
 
-            notice = file_info.get('download_notice') if file_info else None
-            if notice:
-                response.headers['X-Download-Notice'] = notice
+        notice = file_info.get('download_notice') if file_info else None
+        if notice:
+            response.headers['X-Download-Notice'] = notice
 
-            response.headers['X-Content-Type-Options'] = 'nosniff'
-            response.headers['X-Frame-Options'] = 'DENY'
-            response.headers['Referrer-Policy'] = 'no-referrer'
-            response.headers['Access-Control-Allow-Origin'] = '*'
-            response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
-            response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-            return response
-
-        downloads_dir = Path('./downloads')
-        if downloads_dir.exists():
-            expected_names = set()
-            if file_info:
-                name = file_info.get('filename')
-                if name:
-                    expected_names.add(name)
-                    expected_names.add(name.lower())
-            for candidate in downloads_dir.glob('*'):
-                if not candidate.is_file():
-                    continue
-
-                candidate_name = candidate.name
-                if expected_names and candidate_name not in expected_names and candidate_name.lower() not in expected_names:
-                    continue
-
-                if not expected_names and download_id not in candidate_name:
-                    continue
-
-                if request.method == 'HEAD':
-                    response = make_response('', 200)
-                else:
-                    filename = candidate_name
-                    if isinstance(filename, bytes):
-                        filename = filename.decode('utf-8', errors='ignore')
-                    try:
-                        response = send_file(str(candidate), as_attachment=True, download_name=filename)
-                    except TypeError:
-                        response = send_file(str(candidate), as_attachment=True, attachment_filename=filename)
-
-                response.headers['X-Content-Type-Options'] = 'nosniff'
-                response.headers['X-Frame-Options'] = 'DENY'
-                response.headers['Referrer-Policy'] = 'no-referrer'
-                response.headers['Access-Control-Allow-Origin'] = '*'
-                response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
-                response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-                response.headers['X-Fallback-Download'] = 'true'
-                return response
-
-        return jsonify({'error': 'File not found or no longer available'}), 404
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['Referrer-Policy'] = 'no-referrer'
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return response
     except Exception as e:
-        print(f"Download error for {download_id}: {str(e)}")
+        logger.error(f"Download error for {download_id}: {str(e)}", exc_info=True)
         return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 
@@ -620,6 +945,10 @@ def download_by_filename(filename: str):
         
         # Additional validation - reject suspicious patterns
         if '..' in safe_filename or safe_filename.startswith('.'):
+            return jsonify({'error': 'Invalid filename'}), 400
+        
+        # Reject filenames with null bytes or control characters
+        if '\x00' in safe_filename or any(ord(c) < 32 for c in safe_filename):
             return jsonify({'error': 'Invalid filename'}), 400
         
         downloads_dir = Path('./downloads').resolve()
@@ -723,11 +1052,14 @@ def open_file():
         system = platform.system()
         try:
             if system == 'Windows':
+                # Use os.startfile which is safe on Windows
                 os.startfile(str(target_path))  # type: ignore[attr-defined]
             elif system == 'Darwin':
-                subprocess.Popen(['open', str(target_path)])
+                # Explicitly pass shell=False and use list of arguments
+                subprocess.Popen(['open', str(target_path)], shell=False)
             else:  # Linux and other Unix-like systems
-                subprocess.Popen(['xdg-open', str(target_path)])
+                # Explicitly pass shell=False and use list of arguments
+                subprocess.Popen(['xdg-open', str(target_path)], shell=False)
         except Exception as open_err:
             print(f"Error opening file: {open_err}")
             return jsonify({'error': f'Unable to open file: {open_err}'}), 500
@@ -749,6 +1081,10 @@ def debug_formats():
         url = data['url'].strip()
         if not url:
             return jsonify({'error': 'URL cannot be empty'}), 400
+        
+        # Validate URL to prevent SSRF attacks
+        if not validate_url(url):
+            return jsonify({'error': 'Invalid or unsafe URL'}), 400
         
         # Get debug format information
         debug_info = downloader.debug_available_formats(url)
@@ -813,12 +1149,37 @@ def add_security_headers(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['Referrer-Policy'] = 'no-referrer'
+    
+    # Add Content Security Policy to prevent XSS attacks
+    # Allow Google Fonts and other CDN resources for better UI
+    csp_policy = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "img-src 'self' data: https:; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
+    response.headers['Content-Security-Policy'] = csp_policy
+    
+    # Add Strict-Transport-Security for HTTPS (when deployed with HTTPS)
+    # response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    
     # Remove deprecated/undesired headers
     response.headers.pop('X-XSS-Protection', None)
     response.headers.pop('Expires', None)
+    
     # Cache control for static files
     if request.path.startswith('/static/') or request.path.endswith('.js') or request.path.endswith('.css'):
         response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+    else:
+        # Prevent caching of dynamic content
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+    
     return response
 
 if __name__ == '__main__':
@@ -835,6 +1196,7 @@ if __name__ == '__main__':
     # Platform information
     system_info = f"{platform.system()} {platform.release()}"
     python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    
     print()
     # Print platform icon and info
     platform_icons = {
@@ -846,15 +1208,22 @@ if __name__ == '__main__':
     icon = platform_icons.get(platform.system(), '💻')
     print(f"{icon} Platform: {system_info}")
     print(f"🐍 Python: {python_version}")
-    print("🚀 Starting YouTube Downloader Web Interface...")
+    print("🚀 Starting YTDL Web Interface...")
     print("📱 Open your browser and go to: http://localhost:5005")
     print("🛑 Press Ctrl+C to stop the server")
-    print("🔁 Press Ctrl+R to restart the server")
+    if config.DEBUG_MODE:
+        print("🔁 Press Ctrl+R to restart the server")
     
+    use_waitress = os.environ.get('USE_WAITRESS', '').strip() == '1'
+
     try:
-        # Try to use production server (Waitress)
+        if not use_waitress:
+            raise ImportError('Waitress disabled (set USE_WAITRESS=1 to enable)')
+
+        # Production server (Waitress) when explicitly enabled
         from waitress import serve
-        print("\U0001f3ed Using production server (Waitress)")
+        if config.DEBUG_MODE:
+            print("\U0001f3ed Using production server (Waitress)")
 
         # Start a background thread to watch for Ctrl+R in console (Windows)
         def restart_watcher():
@@ -882,12 +1251,29 @@ if __name__ == '__main__':
 
         watcher = threading.Thread(target=restart_watcher, daemon=True)
         watcher.start()
-        serve(app, host='0.0.0.0', port=5005, threads=6)
+        try:
+            serve(app, host='0.0.0.0', port=5005, threads=6)
+        except BaseException as e:
+            print(f"[ERROR] Waitress failed to start ({type(e).__name__}): {e}")
+            import traceback
+            traceback.print_exc()
+            print("⚠️ Falling back to Flask development server")
+            app.run(
+                debug=config.DEBUG_MODE,
+                host='0.0.0.0',
+                port=5005,
+                threaded=True,
+                use_reloader=False
+            )
     except ImportError:
         # Fallback to Flask development server with optimized settings
-        print("\u26a0\ufe0f Using development server (install waitress for production)")
+        if config.DEBUG_MODE:
+            print("\u26a0\ufe0f Using development server (NOT recommended for production)")
+            print("\U0001f4a1 For production, install Waitress: pip install waitress")
+            print("   Then run with: SET USE_WAITRESS=1 && python web_app.py")
+            print()
         app.run(
-            debug=False,
+            debug=config.DEBUG_MODE,
             host='0.0.0.0',
             port=5005,
             threaded=True,

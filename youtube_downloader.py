@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-YouTube Downloader - Optimized Solution
+YTDL - Optimized Solution
 
-A robust YouTube downloader with advanced features:
+A robust YTDL with advanced features:
 - Multiple quality options (144p to 8K)
 - Audio-only downloads
 - Error recovery and retry logic
@@ -15,22 +15,35 @@ import os
 import sys
 import argparse
 import tempfile
-import threading
 import time
 import concurrent.futures
 import random
-import json
 import platform
 import re
 import subprocess
+import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple, List
 
 import yt_dlp
-from colorama import init, Fore, Style
+from colorama import init, Fore
+
+try:
+    import config
+except ImportError:
+    # Fallback if config.py is not available
+    class config:
+        DEBUG_MODE = False
 
 # Initialize colorama for cross-platform colored output
 init(autoreset=True)
+
+# Configure logging based on DEBUG_MODE
+logging.basicConfig(
+    level=logging.DEBUG if config.DEBUG_MODE else logging.WARNING,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 class ErrorHandler:
     """Error recovery system for streaming downloads."""
@@ -198,7 +211,8 @@ class VideoMerger:
             from moviepy.video.io.VideoFileClip import VideoFileClip
             from moviepy.audio.io.AudioFileClip import AudioFileClip
             
-            print(f"{Fore.CYAN}🔄 Merging streams with MoviePy...")
+            if config.DEBUG_MODE:
+                print(f"{Fore.CYAN}🔄 Merging streams with MoviePy...")
             
             # Load and combine
             video_clip = VideoFileClip(video_path)
@@ -228,7 +242,7 @@ class VideoMerger:
 
 class YouTubeDownloader:
     """
-    Ultimate YouTube downloader combining all best practices.
+    Ultimate YTDL combining all best practices.
     Supports both standard and ultra modes with intelligent fallbacks.
     """
     
@@ -239,6 +253,8 @@ class YouTubeDownloader:
         self.error_handler = ErrorHandler()
         self.progress_hook_callback = None
         self.audio_language = None  # Selected audio language
+        self.trim_start = None  # Trim start time in seconds
+        self.trim_end = None  # Trim end time in seconds
         # If true, pass nocheckcertificate=True to yt-dlp options (insecure)
         self.insecure_ssl = bool(insecure_ssl)
     
@@ -260,6 +276,17 @@ class YouTubeDownloader:
         """Apply SSL options based on insecure_ssl flag."""
         if self.insecure_ssl:
             opts['nocheckcertificate'] = True
+        return opts
+
+    def _inject_ffmpeg_location(self, opts: Dict[str, Any]) -> Dict[str, Any]:
+        """Ensure yt-dlp sees the bundled FFmpeg, preventing postprocess failures."""
+        try:
+            if self.merger.ffmpeg_available and getattr(self.merger, 'ffmpeg_path', None):
+                merged = dict(opts)
+                merged.setdefault('ffmpeg_location', self.merger.ffmpeg_path)
+                return merged
+        except Exception:
+            pass
         return opts
     
     def _is_ssl_error(self, error_str: str) -> bool:
@@ -284,14 +311,45 @@ class YouTubeDownloader:
                         # Update filename in the progress dict so callers see corrected path
                         d = dict(d)
                         d['filename'] = fixed
-                except Exception:
-                    # Non-fatal - continue and report original
-                    pass
-        except Exception:
-            pass
+                    
+                    # Apply trim if requested - but ONLY to final merged files, not intermediate streams
+                    if self.trim_start is not None or self.trim_end is not None:
+                        original_file = d.get('filename')
+                        if original_file:
+                            # Check if this is an intermediate stream file (contains format ID markers)
+                            # These will be merged later, so don't trim them yet
+                            filename_lower = original_file.lower()
+                            is_intermediate = any(marker in filename_lower for marker in [
+                                '.fdash-', '.dash-', '.dash_sep-', '.f251-', '.f140-', '.m4a.', '.webm.'
+                            ])
+                            
+                            if not is_intermediate:
+                                trimmed_file = self._apply_trim_to_file(original_file)
+                                if trimmed_file and trimmed_file != original_file:
+                                    # Update filename to trimmed version
+                                    d = dict(d)
+                                    d['filename'] = trimmed_file
+                                    # Update file size
+                                    try:
+                                        trimmed_path = Path(trimmed_file)
+                                        if trimmed_path.exists():
+                                            d['downloaded_bytes'] = trimmed_path.stat().st_size
+                                            d['total_bytes'] = trimmed_path.stat().st_size
+                                    except Exception as file_size_err:
+                                        if config.DEBUG_MODE:
+                                            print(f"{Fore.YELLOW}⚠️  Could not update file size: {file_size_err}")
+                            elif config.DEBUG_MODE:
+                                print(f"{Fore.CYAN}ℹ️  Skipping trim for intermediate stream: {Path(original_file).name}")
+                except Exception as trim_err:
+                    print(f"{Fore.YELLOW}⚠️  Error applying trim in progress hook: {trim_err}")
+        except Exception as hook_err:
+            print(f"{Fore.YELLOW}⚠️  Error in progress hook processing: {hook_err}")
 
         if self.progress_hook_callback:
-            self.progress_hook_callback(d)
+            try:
+                self.progress_hook_callback(d)
+            except Exception as callback_err:
+                print(f"{Fore.RED}❌ Error in progress callback: {callback_err}")
 
     def _validate_and_fix_file(self, filename: str) -> Optional[str]:
         """Check media metadata (duration, resolution). If invalid, try to remux with ffmpeg.
@@ -307,6 +365,13 @@ class YouTubeDownloader:
             info = self._ffprobe(path)
             duration = info.get('duration', 0)
             width = info.get('width', 0)
+            has_audio = info.get('has_audio')
+
+            # Check if video has no audio (common issue with Dzen.ru)
+            if has_audio is False and config.DEBUG_MODE:
+                print(f"{Fore.YELLOW}⚠️  Warning: Downloaded file has no audio stream!")
+                print(f"{Fore.YELLOW}   This is a known issue with some Dzen.ru videos")
+                print(f"{Fore.YELLOW}   File: {path.name}")
 
             # If duration or width are missing/zero, attempt to remux to mp4
             if (not duration or duration <= 0) or (not width or width <= 0):
@@ -333,11 +398,23 @@ class YouTubeDownloader:
             return None
 
     def _ffprobe(self, path: Path) -> Dict[str, Any]:
-        """Run ffprobe (using detected ffmpeg path) and return parsed basic info."""
+        """Run ffprobe (using detected ffmpeg path) and return parsed basic info including audio check."""
         try:
             ffmpeg_cmd = getattr(self.merger, 'ffmpeg_path', 'ffmpeg')
-            cmd = [ffmpeg_cmd.replace('ffmpeg', 'ffprobe'), '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', str(path)]
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', timeout=15)
+            ffprobe_cmd = ffmpeg_cmd.replace('ffmpeg', 'ffprobe')
+            
+            # Security: validate that ffprobe_cmd doesn't contain suspicious characters
+            if any(char in ffprobe_cmd for char in [';', '&', '|', '$', '`']):
+                logger.warning(f"Suspicious ffprobe command detected: {ffprobe_cmd}")
+                return {}
+            
+            # Get video stream info
+            cmd = [ffprobe_cmd, '-v', 'error', '-select_streams', 'v:0', 
+                   '-show_entries', 'stream=width,height', 
+                   '-show_entries', 'format=duration', 
+                   '-of', 'default=noprint_wrappers=1:nokey=1', str(path)]
+            result = subprocess.run(cmd, capture_output=True, text=True, 
+                                  encoding='utf-8', timeout=30)  # Increased timeout
             out = result.stdout.strip().splitlines()
             info: Dict[str, Any] = {}
             if out:
@@ -356,6 +433,18 @@ class YouTubeDownloader:
                         info['duration'] = float(out[0]) if out[0] else 0
                 except Exception:
                     pass
+            
+            # Check if audio stream exists
+            try:
+                audio_cmd = [ffprobe_cmd, '-v', 'error', '-select_streams', 'a:0',
+                           '-show_entries', 'stream=codec_name',
+                           '-of', 'default=noprint_wrappers=1:nokey=1', str(path)]
+                audio_result = subprocess.run(audio_cmd, capture_output=True, text=True,
+                                             encoding='utf-8', timeout=10)
+                info['has_audio'] = bool(audio_result.stdout.strip())
+            except Exception:
+                info['has_audio'] = None  # Unknown
+            
             return info
         except Exception:
             return {}
@@ -369,6 +458,164 @@ class YouTubeDownloader:
             return result.returncode == 0
         except Exception:
             return False
+    
+    def _trim_video(self, input_path: str, output_path: str, start_time: float, end_time: float) -> bool:
+        """Trim video using FFmpeg with precise cutting.
+        
+        Args:
+            input_path: Path to input video file
+            output_path: Path to output trimmed video file
+            start_time: Start time in seconds
+            end_time: End time in seconds
+            
+        Returns:
+            True if trim was successful, False otherwise
+        """
+        try:
+            if not self.merger.ffmpeg_available:
+                print(f"{Fore.RED}❌ FFmpeg not available for video trimming")
+                return False
+            
+            ffmpeg_cmd = self.merger.ffmpeg_path
+            duration = end_time - start_time
+            
+            print(f"{Fore.CYAN}✂️  Trimming video: {start_time}s - {end_time}s (duration: {duration}s)")
+            
+            # Use -ss before -i for faster seeking (input seeking)
+            # Use -t for duration instead of -to for more reliable results
+            # Use -c copy for fast cutting without re-encoding when possible
+            # For precise cutting, we may need to re-encode around keyframes
+            cmd = [
+                ffmpeg_cmd,
+                '-y',  # Overwrite output
+                '-ss', str(start_time),  # Seek to start time
+                '-i', input_path,  # Input file
+                '-t', str(duration),  # Duration to encode
+                '-c', 'copy',  # Copy streams without re-encoding (fast)
+                '-avoid_negative_ts', 'make_zero',  # Handle timestamp issues
+                output_path
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                timeout=600  # 10 minute timeout for trim operation
+            )
+            
+            if result.returncode == 0:
+                print(f"{Fore.GREEN}✅ Video trimmed successfully")
+                return True
+            else:
+                print(f"{Fore.YELLOW}⚠️  Fast trim failed, trying with re-encoding...")
+                # Fallback: re-encode for precise cutting
+                cmd_reencode = [
+                    ffmpeg_cmd,
+                    '-y',
+                    '-ss', str(start_time),
+                    '-i', input_path,
+                    '-t', str(duration),
+                    '-c:v', 'libx264',  # Re-encode video
+                    '-c:a', 'aac',  # Re-encode audio
+                    '-preset', 'fast',  # Fast encoding preset
+                    '-movflags', '+faststart',  # Optimize for streaming
+                    output_path
+                ]
+                
+                result = subprocess.run(
+                    cmd_reencode,
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    timeout=1800  # 30 minute timeout for re-encoding
+                )
+                
+                if result.returncode == 0:
+                    print(f"{Fore.GREEN}✅ Video trimmed with re-encoding")
+                    return True
+                else:
+                    print(f"{Fore.RED}❌ Trim failed: {result.stderr}")
+                    return False
+                    
+        except subprocess.TimeoutExpired:
+            print(f"{Fore.RED}❌ Trim operation timed out")
+            return False
+        except Exception as e:
+            print(f"{Fore.RED}❌ Trim error: {e}")
+            return False
+    
+    def _apply_trim_to_file(self, filepath: str) -> Optional[str]:
+        """Apply trim to downloaded file if trim parameters are set.
+        
+        Args:
+            filepath: Path to the downloaded file
+            
+        Returns:
+            Path to trimmed file, or original filepath if trim not applied
+        """
+        try:
+            # Check if trim is needed
+            trim_start = getattr(self, 'trim_start', None)
+            trim_end = getattr(self, 'trim_end', None)
+            
+            if trim_start is None and trim_end is None:
+                return filepath  # No trim needed
+            
+            # Parse trim parameters
+            start = float(trim_start) if trim_start is not None else 0
+            end = float(trim_end) if trim_end is not None else 999999  # Large number if no end
+            
+            # Validate trim parameters
+            if start < 0:
+                start = 0
+            if end <= start:
+                print(f"{Fore.YELLOW}⚠️  Invalid trim parameters (end <= start), skipping trim")
+                return filepath
+            
+            # Create trimmed filename
+            original_path = Path(filepath)
+            trimmed_filename = original_path.stem + '_trimmed' + original_path.suffix
+            trimmed_path = original_path.parent / trimmed_filename
+            
+            # Perform trim
+            print(f"{Fore.CYAN}✂️  Applying trim to downloaded file...")
+            success = self._trim_video(str(original_path), str(trimmed_path), start, end)
+            
+            if success and trimmed_path.exists():
+                # Remove original file with retry for Windows
+                try:
+                    # Wait briefly to ensure file handles are released
+                    time.sleep(0.5)
+                    original_path.unlink()
+                    print(f"{Fore.GREEN}✅ Removed original file, keeping trimmed version")
+                except Exception as e:
+                    print(f"{Fore.YELLOW}⚠️  Could not remove original file: {e}")
+                
+                # Rename trimmed file to original name with retry for Windows
+                for attempt in range(3):
+                    try:
+                        time.sleep(0.3)  # Brief delay to ensure file handles are released
+                        final_path = trimmed_path.rename(original_path)
+                        return str(final_path)
+                    except PermissionError as e:
+                        if attempt < 2:
+                            print(f"{Fore.YELLOW}⚠️  File in use, retrying rename (attempt {attempt + 1}/3)...")
+                            time.sleep(1.0)  # Wait longer on permission errors
+                        else:
+                            print(f"{Fore.YELLOW}⚠️  Could not rename trimmed file after 3 attempts: {e}")
+                            print(f"{Fore.YELLOW}   Using trimmed filename instead")
+                            return str(trimmed_path)
+                    except Exception as e:
+                        print(f"{Fore.YELLOW}⚠️  Could not rename trimmed file: {e}")
+                        return str(trimmed_path)
+            else:
+                print(f"{Fore.YELLOW}⚠️  Trim failed, keeping original file")
+                return filepath
+                
+        except Exception as e:
+            print(f"{Fore.RED}❌ Error applying trim: {e}")
+            return filepath
             
     def get_video_info(self, url: str) -> Optional[Dict[str, Any]]:
         """Get video information for web interface compatibility with improved error handling."""
@@ -427,7 +674,14 @@ class YouTubeDownloader:
                         print(f"{Fore.GREEN}✅ Retrieved info using nocheckcertificate fallback")
                         return info
                 except Exception as ssl_e:
+                    err_str = str(ssl_e)
                     print(f"{Fore.RED}❌ SSL-fallback failed: {ssl_e}")
+                    
+                    # Check for JSON parse errors which indicate the site may be blocking
+                    if 'JSON' in err_str or 'parse' in err_str.lower():
+                        print(f"{Fore.YELLOW}⚠️  Site appears to be blocking requests or requires authentication")
+                        print(f"{Fore.YELLOW}   Try: 1) Check if video is public, 2) Use cookies file, 3) Try different URL")
+                        return None
 
             # Try fallback with minimal options
             try:
@@ -462,6 +716,21 @@ class YouTubeDownloader:
             output_name: Custom output filename
             audio_only: Download audio only
         """
+        # Validate URL
+        if not url or not isinstance(url, str):
+            print(f"{Fore.RED}❌ Invalid URL provided")
+            return False
+        
+        url = url.strip()
+        if not url:
+            print(f"{Fore.RED}❌ URL cannot be empty")
+            return False
+        
+        # Basic URL validation
+        if not url.startswith(('http://', 'https://')):
+            print(f"{Fore.RED}❌ URL must start with http:// or https://")
+            return False
+        
         print(f"{Fore.MAGENTA}🎬 Unified Video Downloader")
         print(f"{Fore.CYAN}🎯 URL: {url}")
         print(f"{Fore.CYAN}📺 Quality: {quality}")
@@ -488,7 +757,8 @@ class YouTubeDownloader:
                     if not has_video:
                         print(f"{Fore.YELLOW}⚠️  No video streams detected, using standard mode")
                         mode = "standard"
-            except:
+            except Exception as e:
+                print(f"{Fore.YELLOW}⚠️  Error checking video streams: {e}")
                 pass  # If check fails, continue with original mode
                 
         if mode == "ultra" and self.merger.available:
@@ -498,16 +768,18 @@ class YouTubeDownloader:
     
     def _download_ultra_mode(self, url: str, quality: str, output_name: Optional[str]) -> bool:
         """Ultra mode with separate stream downloading and Python merging."""
-        print(f"{Fore.MAGENTA}🎬 ULTRA MODE - Pure Python Excellence")
+        if config.DEBUG_MODE:
+            print(f"{Fore.MAGENTA}🎬 ULTRA MODE - Pure Python Excellence")
         
         # Check if we can actually handle separate streams end-to-end
         # Note: yt-dlp needs FFmpeg to download separate streams, even if we can merge with MoviePy
         if not self.merger.ffmpeg_available:
-            if self.merger.available:
-                print(f"{Fore.YELLOW}⚠️  MoviePy available but FFmpeg needed for separate stream downloads")
-            else:
-                print(f"{Fore.YELLOW}⚠️  No merging capability available (MoviePy or FFmpeg needed)")
-            print(f"{Fore.YELLOW}🔄 Falling back to standard mode with enhanced quality...")
+            if config.DEBUG_MODE:
+                if self.merger.available:
+                    print(f"{Fore.YELLOW}⚠️  MoviePy available but FFmpeg needed for separate stream downloads")
+                else:
+                    print(f"{Fore.YELLOW}⚠️  No merging capability available (MoviePy or FFmpeg needed)")
+                print(f"{Fore.YELLOW}🔄 Falling back to standard mode with enhanced quality...")
             return self._download_standard_mode(url, quality, output_name)
         
         try:
@@ -522,13 +794,19 @@ class YouTubeDownloader:
                     return False
                 
                 title = video_info.get('title', 'video')
-                print(f"{Fore.GREEN}📺 {title}")
+                if config.DEBUG_MODE:
+                    print(f"{Fore.GREEN}📺 {title}")
                 
                 # Smart format selection
                 video_format, audio_format = self._select_formats(video_info, quality)
                 
+                if video_format is None or audio_format is None:
+                    print(f"{Fore.YELLOW}🔄 Falling back to standard mode...")
+                    return self._download_standard_mode(url, quality, output_name)
+                
                 if video_format and audio_format:
-                    print(f"{Fore.CYAN}⬇️  Starting download...")
+                    if config.DEBUG_MODE:
+                        print(f"{Fore.CYAN}⬇️  Starting download...")
                     # Download separate streams
                     video_file, audio_file = self._download_separate_streams(
                         url, temp_dir, video_format, audio_format
@@ -537,18 +815,21 @@ class YouTubeDownloader:
                     if video_file and audio_file:
                         # Always prefer FFmpeg for merging if available
                         output_path = self._get_output_path(title, output_name)
-                        print(f"{Fore.YELLOW}🔄 Merging streams...")
+                        if config.DEBUG_MODE:
+                            print(f"{Fore.YELLOW}🔄 Merging streams...")
                         if self.merger.ffmpeg_available:
-                            print(f"{Fore.CYAN}Using FFmpeg for merging...")
+                            if config.DEBUG_MODE:
+                                print(f"{Fore.CYAN}Using FFmpeg for merging...")
                             success = self._merge_with_ytdlp(video_file, audio_file, str(output_path))
                         elif self.merger.available:
-                            print(f"{Fore.CYAN}Using MoviePy for merging...")
+                            if config.DEBUG_MODE:
+                                print(f"{Fore.CYAN}Using MoviePy for merging...")
                             success = self.merger.merge_streams(video_file, audio_file, str(output_path))
                         else:
                             print(f"{Fore.RED}❌ No merging capability available!")
                             success = False
                         if success:
-                            print(f"{Fore.GREEN}🎉 ULTRA SUCCESS: {output_path.name}")
+                            print(f"{Fore.GREEN}✅ Download complete: {output_path.name}")
                             # Manually trigger completion for web interface
                             if hasattr(self, 'progress_hook_callback') and self.progress_hook_callback:
                                 completion_data = {
@@ -564,15 +845,18 @@ class YouTubeDownloader:
                     else:
                         print(f"{Fore.YELLOW}⚠️  Stream download failed, falling back...")
                 else:
-                    print(f"{Fore.YELLOW}⚠️  No suitable separate streams found, falling back...")
+                    if config.DEBUG_MODE:
+                        print(f"{Fore.YELLOW}⚠️  No suitable separate streams found, falling back...")
                 
                 # Fallback to standard mode
-                print(f"{Fore.YELLOW}🔄 Falling back to standard mode...")
+                if config.DEBUG_MODE:
+                    print(f"{Fore.YELLOW}🔄 Falling back to standard mode...")
                 return self._download_standard_mode(url, quality, output_name)
                 
         except Exception as e:
-            print(f"{Fore.RED}❌ Ultra mode failed: {e}")
-            print(f"{Fore.YELLOW}🔄 Falling back to standard mode...")
+            if config.DEBUG_MODE:
+                print(f"{Fore.RED}❌ Ultra mode failed: {e}")
+                print(f"{Fore.YELLOW}🔄 Falling back to standard mode...")
             return self._download_standard_mode(url, quality, output_name)
     
     def _download_standard_mode(self, url: str, quality: str, output_name: Optional[str]) -> bool:
@@ -580,17 +864,16 @@ class YouTubeDownloader:
         print(f"{Fore.CYAN}📥 STANDARD MODE - Reliable Download")
         print(f"{Fore.CYAN}🎯 Target quality: {quality}")
 
+        # Check if this is Dzen.ru
+        is_dzen = 'dzen.ru' in url or 'zen.yandex' in url
+
         # Check if audio language is specified
         selected_audio_lang = getattr(self, 'audio_language', None)
-        if selected_audio_lang:
+        if selected_audio_lang and config.DEBUG_MODE:
             print(f"{Fore.CYAN}🌐 Requested audio language: {selected_audio_lang}")
 
         # Progressive quality fallback for best success rate
-        quality_options = self._get_quality_fallbacks(quality)
-
-        # Debug: Log the actual quality selection process
-        print(f"{Fore.CYAN}🔍 DEBUG: Requested quality: {quality}")
-        print(f"{Fore.CYAN}🔍 DEBUG: Quality fallbacks: {', '.join(quality_options[:5])}")
+        quality_options = self._get_quality_fallbacks(quality, is_dzen=is_dzen)
 
         print(f"{Fore.CYAN}📋 Trying formats: {', '.join(quality_options[:3])}...")
 
@@ -599,7 +882,8 @@ class YouTubeDownloader:
                 print(f"{Fore.YELLOW}⚠️  Download cancelled (standard mode)")
                 return False
             try:
-                print(f"{Fore.YELLOW}🔍 Attempting format: {fmt}")
+                if config.DEBUG_MODE:
+                    print(f"{Fore.YELLOW}🔍 Attempting format: {fmt}")
                 
                 # Modify format string to include audio language if specified
                 format_str = fmt
@@ -615,7 +899,8 @@ class YouTubeDownloader:
                     else:
                         # Try to prefer the selected language in combined format
                         format_str = f"{fmt}[language={selected_audio_lang}]/{fmt}"
-                    print(f"{Fore.CYAN}🌐 Using audio language filter: {selected_audio_lang}")
+                    if config.DEBUG_MODE:
+                        print(f"{Fore.CYAN}🌐 Using audio language filter: {selected_audio_lang}")
                 
                 output_template = self._get_output_template(output_name)
                 
@@ -624,10 +909,17 @@ class YouTubeDownloader:
                     'outtmpl': output_template,
                     'writeinfojson': False,
                     'writesubtitles': False,
-                    'embed_metadata': True,
-                    'embed_thumbnail': True,
-                    'addmetadata': True,
-                    'postprocessors': [
+                    'nooverwrites': False,  # Always re-download, don't skip existing files
+                    'quiet': not config.DEBUG_MODE,  # Hide yt-dlp output when DEBUG_MODE is off
+                    'no_warnings': not config.DEBUG_MODE,  # Hide warnings when DEBUG_MODE is off
+                }
+                
+                # Only add metadata postprocessors if FFmpeg is available
+                if self.merger.ffmpeg_available:
+                    opts['embed_metadata'] = True
+                    opts['embed_thumbnail'] = True
+                    opts['addmetadata'] = True
+                    opts['postprocessors'] = [
                         {
                             'key': 'FFmpegMetadata',
                             'add_metadata': True,
@@ -636,8 +928,10 @@ class YouTubeDownloader:
                             'key': 'EmbedThumbnail',
                             'already_have_thumbnail': False,
                         }
-                    ],
-                }
+                    ]
+                else:
+                    # Skip metadata processing if FFmpeg not available
+                    opts['postprocessors'] = []
                 
                 # Add progress hook if available
                 if self.progress_hook_callback:
@@ -653,7 +947,8 @@ class YouTubeDownloader:
                 if not self._ydl_download_with_ssl_fallback(opts, url):
                     raise Exception('Download failed')
                     
-                print(f"{Fore.GREEN}✅ Download completed successfully with format: {fmt}")
+                if config.DEBUG_MODE:
+                    print(f"{Fore.GREEN}✅ Download completed successfully with format: {fmt}")
                 return True
                 
             except Exception as e:
@@ -705,10 +1000,17 @@ class YouTubeDownloader:
             'format': 'bestaudio/best',
             'outtmpl': output_template,
             'writeinfojson': False,
-            'embed_metadata': True,
-            'embed_thumbnail': True,
-            'addmetadata': True,
-            'postprocessors': [
+            'nooverwrites': False,  # Always re-download, don't skip existing files
+            'quiet': not config.DEBUG_MODE,
+            'no_warnings': not config.DEBUG_MODE,
+        }
+        
+        # Only add FFmpeg postprocessors if FFmpeg is available
+        if self.merger.ffmpeg_available:
+            opts['embed_metadata'] = True
+            opts['embed_thumbnail'] = True
+            opts['addmetadata'] = True
+            opts['postprocessors'] = [
                 {
                     'key': 'FFmpegMetadata',
                     'add_metadata': True,
@@ -722,8 +1024,12 @@ class YouTubeDownloader:
                     'preferredcodec': 'mp3',
                     'preferredquality': '192',
                 }
-            ],
-        }
+            ]
+        else:
+            # Without FFmpeg, just download best audio format as-is
+            if config.DEBUG_MODE:
+                print(f"{Fore.YELLOW}⚠️  FFmpeg not available - downloading audio without conversion")
+            opts['postprocessors'] = []
         
         # Add progress hook if available
         if self.progress_hook_callback:
@@ -749,7 +1055,10 @@ class YouTubeDownloader:
             try:
                 opts = {'quiet': True, 'no_warnings': True, 'extract_flat': False}
                 
-                if attempt > 0:
+                # For VK and other strict sites, use robust options from the start
+                if 'vk.com' in url or 'vkontakte' in url:
+                    opts = self.error_handler.get_robust_options(opts)
+                elif attempt > 0:
                     opts = self.error_handler.get_robust_options(opts)
                     time.sleep(random.uniform(1, 3))
                 
@@ -770,10 +1079,23 @@ class YouTubeDownloader:
                         with yt_dlp.YoutubeDL(ssl_opts) as ydl:
                             return ydl.extract_info(url, download=False)
                     except Exception as ssl_e:
+                        ssl_err_str = str(ssl_e)
                         print(f"{Fore.RED}❌ SSL-fallback failed: {ssl_e}")
+                        
+                        # Check for JSON parse errors (VK blocking)
+                        if 'JSON' in ssl_err_str or 'parse' in ssl_err_str.lower():
+                            print(f"{Fore.YELLOW}⚠️  VK may be blocking requests or video requires authentication")
+                            print(f"{Fore.YELLOW}   Solutions: 1) Check video privacy settings, 2) Use cookies.txt, 3) Try browser login")
+                            return None
 
                 if attempt == 2:
-                    print(f"{Fore.RED}❌ Failed to get video info: {e}")
+                    # Provide helpful message for common VK errors
+                    if 'vk.com' in url and ('JSON' in err_str or 'parse' in err_str.lower()):
+                        print(f"{Fore.RED}❌ Failed to get VK video info: {e}")
+                        print(f"{Fore.YELLOW}💡 VK videos often require authentication or have strict privacy settings")
+                        print(f"{Fore.YELLOW}   Try using a cookies file from your browser session")
+                    else:
+                        print(f"{Fore.RED}❌ Failed to get video info: {e}")
                     
         return None
 
@@ -783,6 +1105,7 @@ class YouTubeDownloader:
         Returns True on success, False on failure.
         """
         try:
+            opts = self._inject_ffmpeg_location(opts)
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([url])
             return True
@@ -794,6 +1117,7 @@ class YouTubeDownloader:
                 print(f"{Fore.YELLOW}⚠️  SSL certificate verification failed during download. Retrying with 'nocheckcertificate'=True.")
                 try:
                     ssl_opts = {**opts, 'nocheckcertificate': True}
+                    ssl_opts = self._inject_ffmpeg_location(ssl_opts)
                     with yt_dlp.YoutubeDL(ssl_opts) as ydl:
                         ydl.download([url])
                     print(f"{Fore.GREEN}✅ Download succeeded using nocheckcertificate fallback")
@@ -809,6 +1133,12 @@ class YouTubeDownloader:
         """Smart format selection for separate streams with better validation."""
         formats = video_info.get('formats', [])
         
+        # Special handling for Dzen.ru - use combined formats instead of separate streams
+        url = video_info.get('webpage_url', '') or video_info.get('original_url', '')
+        is_dzen = 'dzen.ru' in url or 'zen.yandex' in url
+        if is_dzen and config.DEBUG_MODE:
+            print(f"{Fore.CYAN}ℹ️  Dzen.ru detected - using combined formats for reliability")
+        
         quality_heights = {
             'best': 2160, '4k': 2160, '1440p': 1440,
             '1080p': 1080, '720p': 720, '480p': 480, '360p': 360
@@ -817,6 +1147,20 @@ class YouTubeDownloader:
         
         # Get selected audio language if available
         selected_audio_lang = getattr(self, 'audio_language', None)
+        
+        # Check if formats are muxed (both video and audio) or separate
+        # Muxed formats should not be used in ULTRA mode
+        has_muxed_only = all(
+            (f.get('vcodec') and f.get('vcodec') != 'none' and 
+             f.get('acodec') and f.get('acodec') != 'none')
+            for f in formats if f.get('vcodec') and f.get('vcodec') != 'none'
+        )
+        
+        if has_muxed_only:
+            if config.DEBUG_MODE:
+                print(f"{Fore.YELLOW}⚠️  All formats are muxed (video+audio combined)")
+                print(f"{Fore.YELLOW}   Ultra mode requires separate streams - use standard mode instead")
+            return None, None
         
         # Find video-only formats with better filtering and reliability scoring
         video_formats = []
@@ -856,21 +1200,16 @@ class YouTubeDownloader:
                 else:
                     audio_formats.append(f)
         
-        # If no explicit separate streams available, try a safe fallback
+        # If no explicit separate streams available, signal to use standard mode
         if not video_formats or not audio_formats:
-            print(f"{Fore.YELLOW}⚠️  No explicit separate video/audio streams available (filtered)")
-            print(f"{Fore.YELLOW}   Video formats matched: {len(video_formats)}")
-            print(f"{Fore.YELLOW}   Audio formats matched: {len(audio_formats)}")
-            if selected_audio_lang:
-                print(f"{Fore.YELLOW}   Requested audio language: {selected_audio_lang}")
-
-            # As a fallback, attempt to use generic selectors that ask yt-dlp to pick
-            # the best video and best audio. If an audio language was requested, include it.
-            # This allows ULTRA mode to still download separate streams even when our
-            # stricter filtering didn't find explicit format entries.
-            audio_selector = f"bestaudio[language={selected_audio_lang}]" if selected_audio_lang else "bestaudio"
-            print(f"{Fore.CYAN}🔁 Falling back to generic selectors: bestvideo + {audio_selector}")
-            return 'bestvideo', audio_selector
+            if config.DEBUG_MODE:
+                print(f"{Fore.YELLOW}⚠️  No explicit separate video/audio streams available (filtered)")
+                print(f"{Fore.YELLOW}   Video formats matched: {len(video_formats)}")
+                print(f"{Fore.YELLOW}   Audio formats matched: {len(audio_formats)}")
+                if selected_audio_lang:
+                    print(f"{Fore.YELLOW}   Requested audio language: {selected_audio_lang}")
+                print(f"{Fore.YELLOW}   Returning None to trigger standard mode fallback")
+            return None, None
         
         # Sort by preference: reliability first, then quality targeting
         video_formats.sort(key=lambda x: (
@@ -894,20 +1233,23 @@ class YouTubeDownloader:
         audio_reliable = audio_format.get('_reliability_score', 0) == 1
         
         if not video_reliable or not audio_reliable:
-            print(f"{Fore.YELLOW}⚠️  Using experimental formats - may be unreliable")
-            if not video_reliable:
-                print(f"{Fore.YELLOW}   Video format {video_format['format_id']} is experimental")
-            if not audio_reliable:
-                print(f"{Fore.YELLOW}   Audio format {audio_format['format_id']} is experimental")
-            print(f"{Fore.YELLOW}   Consider using standard mode for better reliability")
+            if config.DEBUG_MODE:
+                print(f"{Fore.YELLOW}⚠️  Using experimental formats - may be unreliable")
+                if not video_reliable:
+                    print(f"{Fore.YELLOW}   Video format {video_format['format_id']} is experimental")
+                if not audio_reliable:
+                    print(f"{Fore.YELLOW}   Audio format {audio_format['format_id']} is experimental")
+                print(f"{Fore.YELLOW}   Consider using standard mode for better reliability")
         
-        print(f"{Fore.CYAN}📹 Selected video: {video_format['format_id']} ({video_format.get('height', 'unknown')}p)")
-        print(f"{Fore.CYAN}🎵 Selected audio: {audio_format['format_id']} ({audio_format.get('abr', 'unknown')} kbps)")
+        if config.DEBUG_MODE:
+            print(f"{Fore.CYAN}📹 Selected video: {video_format['format_id']} ({video_format.get('height', 'unknown')}p)")
+            print(f"{Fore.CYAN}🎵 Selected audio: {audio_format['format_id']} ({audio_format.get('abr', 'unknown')} kbps)")
         
         # Log selected audio language if specified
         if selected_audio_lang:
             audio_lang_name = audio_format.get('language_name') or audio_format.get('language') or selected_audio_lang
-            print(f"{Fore.CYAN}🌐 Audio language: {audio_lang_name} ({selected_audio_lang})")
+            if config.DEBUG_MODE:
+                print(f"{Fore.CYAN}🌐 Audio language: {audio_lang_name} ({selected_audio_lang})")
         
         return video_format['format_id'], audio_format['format_id']
     
@@ -920,14 +1262,17 @@ class YouTubeDownloader:
         def download_video():
             nonlocal video_file
             try:
-                print(f"{Fore.CYAN}⬇️  Downloading video stream: {video_format}")
+                if config.DEBUG_MODE:
+                    print(f"{Fore.CYAN}⬇️  Downloading video stream: {video_format}")
                 opts = self.error_handler.get_robust_options({
                     'format': video_format,
                     'outtmpl': f'{temp_dir}/video.%(ext)s',
-                    'quiet': True,
+                    'quiet': not config.DEBUG_MODE,
+                    'no_warnings': not config.DEBUG_MODE,
                     'embed_metadata': True,
                     'embed_thumbnail': True,
                     'addmetadata': True,
+                    'nooverwrites': False,  # Force re-download
                 })
                 
                 # Add progress hook if available
@@ -942,7 +1287,8 @@ class YouTubeDownloader:
                 video_file = str(video_files[0]) if video_files else None
                 
                 if video_file:
-                    print(f"{Fore.GREEN}✅ Video stream downloaded successfully")
+                    if config.DEBUG_MODE:
+                        print(f"{Fore.GREEN}✅ Video stream downloaded successfully")
                 else:
                     print(f"{Fore.RED}❌ Video file not found after download")
                 
@@ -959,14 +1305,17 @@ class YouTubeDownloader:
         def download_audio():
             nonlocal audio_file
             try:
-                print(f"{Fore.CYAN}⬇️  Downloading audio stream: {audio_format}")
+                if config.DEBUG_MODE:
+                    print(f"{Fore.CYAN}⬇️  Downloading audio stream: {audio_format}")
                 opts = self.error_handler.get_robust_options({
                     'format': audio_format,
                     'outtmpl': f'{temp_dir}/audio.%(ext)s',
-                    'quiet': True,
+                    'quiet': not config.DEBUG_MODE,
+                    'no_warnings': not config.DEBUG_MODE,
                     'embed_metadata': True,
                     'embed_thumbnail': True,
                     'addmetadata': True,
+                    'nooverwrites': False,  # Force re-download
                 })
                 
                 # Add progress hook if available
@@ -981,7 +1330,8 @@ class YouTubeDownloader:
                 audio_file = str(audio_files[0]) if audio_files else None
                 
                 if audio_file:
-                    print(f"{Fore.GREEN}✅ Audio stream downloaded successfully")
+                    if config.DEBUG_MODE:
+                        print(f"{Fore.GREEN}✅ Audio stream downloaded successfully")
                 else:
                     print(f"{Fore.RED}❌ Audio file not found after download")
                 
@@ -1029,8 +1379,71 @@ class YouTubeDownloader:
             print(f"{Fore.RED}❌ FFmpeg merge error: {e}")
             return False
     
-    def _get_quality_fallbacks(self, quality: str) -> List[str]:
+    def _get_quality_fallbacks(self, quality: str, is_dzen: bool = False) -> List[str]:
         """Get progressive quality fallback options with better high-quality selection."""
+        
+        # Special format selection for Dzen.ru - use combined formats with audio
+        if is_dzen:
+            # Dzen.ru needs special format strings that ensure audio is included
+            # Use height limits to respect quality selection
+            dzen_fallbacks = {
+                'best': [
+                    'best[ext=mp4]',
+                    'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
+                    'best[height<=1080]',
+                    'best[height<=720]',
+                    'best'
+                ],
+                '4k': [
+                    'best[height<=2160][ext=mp4]',
+                    'best[height<=1440][ext=mp4]',
+                    'bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/best[height<=2160]',
+                    'bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/best[height<=1440]',
+                    'best[ext=mp4]',
+                    'best'
+                ],
+                '1440p': [
+                    'best[height<=1440][ext=mp4]',
+                    'best[height<=1080][ext=mp4]',
+                    'bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/best[height<=1440]',
+                    'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080]',
+                    'best[ext=mp4]',
+                    'best'
+                ],
+                '1080p': [
+                    'best[height<=1080][ext=mp4]',
+                    'best[height<=720][ext=mp4]',
+                    'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080]',
+                    'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]',
+                    'best[ext=mp4]',
+                    'best'
+                ],
+                '720p': [
+                    'best[height<=720][ext=mp4]',
+                    'best[height<=480][ext=mp4]',
+                    'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]',
+                    'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480]',
+                    'best[ext=mp4]',
+                    'best'
+                ],
+                '480p': [
+                    'best[height<=480][ext=mp4]',
+                    'best[height<=360][ext=mp4]',
+                    'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480]',
+                    'bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360]',
+                    'best[ext=mp4]',
+                    'best'
+                ],
+                '360p': [
+                    'best[height<=360][ext=mp4]',
+                    'best[height<=240][ext=mp4]',
+                    'bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360]',
+                    'bestvideo[height<=240][ext=mp4]+bestaudio[ext=m4a]/best[height<=240]',
+                    'best[ext=mp4]',
+                    'best'
+                ],
+            }
+            return dzen_fallbacks.get(quality.lower(), dzen_fallbacks['best'])
         
         # Check if we can handle separate streams
         # For standard mode, we need FFmpeg to download separate streams via yt-dlp
@@ -1059,71 +1472,67 @@ class YouTubeDownloader:
                     'bestvideo+bestaudio/best', 'best'
                 ],
                 '1440p': [
-                    'bestvideo[height>=1440]+bestaudio/best[height>=1440]',
+                    'bestvideo[height<=1440][height>=1080]+bestaudio/best[height<=1440][height>=1080]',  # Prefer 1440p, accept 1080p
+                    'bestvideo[height<=1440]+bestaudio/best[height<=1440]',  # Max 1440p
+                    'best[height<=1440][height>=1080]',  # Combined format, prefer 1440p/1080p
+                    'best[height<=1440]', 'best[height>=1080]',
                     'bestvideo[height>=1080]+bestaudio/best[height>=1080]',
-                    'bestvideo[height>=720]+bestaudio/best[height>=720]',
-                    'best[height>=1440]', 'best[height>=1080]', 'best[height>=720]',
-                    'best[height<=1440]', 'best[height<=1080]', 
-                    'bestvideo[height>=1440]+bestaudio/best[height<=1440]',
                     'bestvideo+bestaudio/best', 'best'
                 ],
                 '1080p': [
-                    'bestvideo[height>=1080]+bestaudio/best[height>=1080]',
+                    'bestvideo[height<=1080][height>=720]+bestaudio/best[height<=1080][height>=720]',  # Prefer 1080p, accept 720p
+                    'bestvideo[height<=1080]+bestaudio/best[height<=1080]',  # Max 1080p
+                    'best[height<=1080][height>=720]',  # Combined format, prefer 1080p/720p
+                    'best[height<=1080]', 'best[height>=720]',
                     'bestvideo[height>=720]+bestaudio/best[height>=720]',
-                    'bestvideo[height>=480]+bestaudio/best[height>=480]',
-                    'best[height>=1080]', 'best[height>=720]', 'best[height>=480]',
-                    'best[height<=1080]', 'best[height<=720]', 
-                    'bestvideo[height>=1080]+bestaudio/best[height<=1080]',
                     'bestvideo+bestaudio/best', 'best'
                 ],
                 '720p': [
-                    'bestvideo[height>=720]+bestaudio/best[height>=720]',
+                    'bestvideo[height<=720][height>=480]+bestaudio/best[height<=720][height>=480]',  # Prefer 720p, accept 480p
+                    'bestvideo[height<=720]+bestaudio/best[height<=720]',  # Max 720p
+                    'best[height<=720][height>=480]',  # Combined format, prefer 720p/480p
+                    'best[height<=720]', 'best[height>=480]',
                     'bestvideo[height>=480]+bestaudio/best[height>=480]',
-                    'bestvideo[height>=360]+bestaudio/best[height>=360]',
-                    'best[height>=720]', 'best[height>=480]', 'best[height>=360]',
-                    'best[height<=720]', 'best[height<=480]', 
-                    'bestvideo[height>=720]+bestaudio/best[height<=720]',
                     'bestvideo+bestaudio/best', 'best'
                 ],
                 '480p': [
-                    'bestvideo[height>=480][height<720]+bestaudio/best[height>=480][height<720]',
-                    'bestvideo[height>=480]+bestaudio/best[height>=480]',
-                    'best[height>=480][height<720]', 'best[height>=480]',
-                    'best[height<=480][height>360]', 'best[height<=480]', 
-                    'bestvideo[height>=480]+bestaudio/best[height<=480]',
+                    'bestvideo[height<=480][height>=360]+bestaudio/best[height<=480][height>=360]',  # Prefer 480p, accept 360p
+                    'bestvideo[height<=480]+bestaudio/best[height<=480]',  # Max 480p
+                    'best[height<=480][height>=360]',  # Combined format
+                    'best[height<=480]', 'best[height>=360]',
+                    'bestvideo[height>=360]+bestaudio/best[height>=360]',
                     'bestvideo+bestaudio/best', 'best'
                 ],
                 '360p': [
-                    'bestvideo[height>=360][height<480]+bestaudio/best[height>=360][height<480]',
-                    'bestvideo[height>=360]+bestaudio/best[height>=360]',
-                    'best[height>=360][height<480]', 'best[height>=360]',
-                    'best[height<=360]', 
-                    'bestvideo[height>=360]+bestaudio/best[height<=360]',
+                    'bestvideo[height<=360][height>=240]+bestaudio/best[height<=360][height>=240]',  # Prefer 360p, accept 240p
+                    'bestvideo[height<=360]+bestaudio/best[height<=360]',  # Max 360p
+                    'best[height<=360][height>=240]',  # Combined format
+                    'best[height<=360]', 'best[height>=240]',
+                    'bestvideo[height>=240]+bestaudio/best[height>=240]',
                     'bestvideo+bestaudio/best', 'best'
                 ],
                 '240p': [
-                    'bestvideo[height>=240][height<360]+bestaudio/best[height>=240][height<360]',
-                    'bestvideo[height>=240]+bestaudio/best[height>=240]',
-                    'best[height>=240][height<360]', 'best[height>=240]',
-                    'best[height<=240]', 
-                    'bestvideo[height>=240]+bestaudio/best[height<=240]',
+                    'bestvideo[height<=240][height>=144]+bestaudio/best[height<=240][height>=144]',  # Prefer 240p, accept 144p
+                    'bestvideo[height<=240]+bestaudio/best[height<=240]',  # Max 240p
+                    'best[height<=240][height>=144]',  # Combined format
+                    'best[height<=240]', 'best[height>=144]',
+                    'bestvideo[height>=144]+bestaudio/best[height>=144]',
                     'bestvideo+bestaudio/best', 'best'
                 ],
                 '144p': [
-                    'bestvideo[height>=144][height<240]+bestaudio/best[height>=144][height<240]',
+                    'bestvideo[height<=144]+bestaudio/best[height<=144]',  # Max 144p
+                    'best[height<=144]',  # Combined format
                     'bestvideo[height>=144]+bestaudio/best[height>=144]',
-                    'best[height>=144][height<240]', 'best[height>=144]',
-                    'best[height<=144]', 
-                    'bestvideo[height>=144]+bestaudio/best[height<=144]',
                     'bestvideo+bestaudio/best', 'best'
                 ]
             }
         else:
             # No merging capability - prioritize single-file (muxed) formats only
             # Note: Most YouTube videos have combined formats available up to 360p-480p
-            print(f"{Fore.YELLOW}⚠️  No merging capability detected - using combined formats only")
-            print(f"{Fore.YELLOW}   Combined formats typically available: 144p, 240p, 360p, 480p")
-            print(f"{Fore.YELLOW}   Install FFmpeg for high-quality separate stream downloads")
+            if config.DEBUG_MODE:
+                print(f"{Fore.YELLOW}⚠️  No merging capability detected - using combined formats only")
+                print(f"{Fore.YELLOW}   Combined formats typically available: 144p, 240p, 360p, 480p")
+                print(f"{Fore.YELLOW}   Install FFmpeg for high-quality separate stream downloads")
             fallbacks = {
                 '4k': [
                     'best[height>=2160][vcodec!*=none][acodec!*=none]',
@@ -1256,7 +1665,7 @@ class YouTubeDownloader:
         return opts
     
     def debug_available_formats(self, url: str) -> Dict[str, Any]:
-        """Debug function to show all available formats for a video."""
+        """Get all available formats for a video (for troubleshooting)."""
         try:
             opts = {
                 'quiet': True,
@@ -1372,6 +1781,7 @@ def main():
     else:
         print(f"\n{Fore.RED}❌ Download failed")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

@@ -1,15 +1,25 @@
 # Core Requirements for YouTube Downloader
-# Minimal production dependencies
+# Production dependencies for cross-platform support
 
 # Web framework
 Flask>=3.1.2
 waitress>=3.0.2
 
 # YouTube downloading
-yt-dlp>=2025.10.22
+yt-dlp>=2025.12.08
 
 # Video processing (optional, for ultra mode)
+# FFmpeg is recommended for better quality and features
 moviepy>=2.2.1
 
-# Additional utilities
+# Utilities
 colorama>=0.4.6
+
+# Optional: Enhanced performance
+# requests>=2.31.0
+# certifi>=2024.0.0
+
+# Development dependencies (not needed in production)
+# pytest>=7.4.0
+# black>=23.0.0
+# flake8>=6.0.0

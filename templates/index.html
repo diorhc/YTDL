@@ -8,11 +8,11 @@
       content="Download videos from popular platforms across the web with ease"
     />
     <meta name="theme-color" content="#4fc3f7" />
-    <link rel="icon" href="by.svg" type="image/svg+xml" />
-    <link rel="icon" href="by.png" sizes="32x32" type="image/png" />
-    <link rel="shortcut icon" href="by.png" />
-    <link rel="apple-touch-icon" href="by.png" />
-    <meta name="msapplication-TileImage" content="by.png" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎬</text></svg>"
+      type="image/svg+xml"
+    />
     <title>YTDL</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -300,6 +300,61 @@
         border-radius: 8px;
         cursor: pointer;
         box-shadow: var(--shadow2);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+      }
+
+      .video-thumbnail:hover {
+        box-shadow: 0 8px 24px rgba(0, 212, 255, 0.3);
+        transform: scale(1.02);
+      }
+
+      .video-thumbnail-container {
+        position: relative;
+      }
+
+      .video-thumbnail-preview {
+        position: absolute;
+        right: calc(100% + 50px);
+        top: 50%;
+        transform: translateY(-50%) scale(0.95);
+        width: 450px;
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5),
+          0 0 0 1px rgba(255, 255, 255, 0.1);
+        opacity: 0;
+        pointer-events: none;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 9998;
+        overflow: hidden;
+        background: var(--glass-bg);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 2px solid rgba(0, 212, 255, 0.3);
+      }
+
+      .video-thumbnail-preview.show {
+        opacity: 1;
+        transform: translateY(-50%) scale(1);
+      }
+
+      .video-thumbnail-preview img {
+        width: 100%;
+        height: auto;
+        display: block;
+        border-radius: 14px;
+      }
+
+      body.light .video-thumbnail-preview {
+        border-color: rgba(52, 152, 219, 0.4);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2),
+          0 0 0 1px rgba(255, 255, 255, 0.3);
+      }
+
+      @media (max-width: 1024px) {
+        .video-thumbnail-preview {
+          display: none;
+        }
       }
 
       .video-info {
@@ -362,6 +417,402 @@
 
       .quality-link.audio-only {
         color: var(--warning);
+      }
+
+      /* Timeline trim controls - Glassmorphism */
+      .timeline-controls {
+        margin-top: 20px;
+        padding: 24px;
+        background: rgba(0, 212, 255, 0.08);
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+        border-radius: 20px;
+        border: 1px solid rgba(0, 212, 255, 0.2);
+        box-shadow: 0 8px 32px rgba(0, 212, 255, 0.15),
+          inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        position: relative;
+        overflow: hidden;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .timeline-controls::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 100%;
+        background: linear-gradient(
+          135deg,
+          rgba(0, 212, 255, 0.1) 0%,
+          rgba(35, 166, 213, 0.05) 50%,
+          rgba(0, 212, 255, 0.08) 100%
+        );
+        opacity: 0;
+        transition: opacity 0.4s ease;
+        pointer-events: none;
+      }
+
+      .timeline-controls:hover {
+        border-color: rgba(0, 212, 255, 0.4);
+        box-shadow: 0 12px 40px rgba(0, 212, 255, 0.25),
+          inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        transform: translateY(-2px);
+      }
+
+      .timeline-controls:hover::before {
+        opacity: 1;
+      }
+
+      body.light .timeline-controls {
+        background: rgba(52, 152, 219, 0.12);
+        border-color: rgba(52, 152, 219, 0.3);
+        box-shadow: 0 8px 32px rgba(52, 152, 219, 0.2),
+          inset 0 1px 0 rgba(255, 255, 255, 0.3);
+      }
+
+      body.light .timeline-controls:hover {
+        border-color: rgba(52, 152, 219, 0.5);
+        box-shadow: 0 12px 40px rgba(52, 152, 219, 0.3),
+          inset 0 1px 0 rgba(255, 255, 255, 0.4);
+      }
+
+      .timeline-controls h4 {
+        margin: 0 0 16px 0;
+        color: var(--accent);
+        font-size: 1rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .timeline-controls h4 svg {
+        width: 20px;
+        height: 20px;
+        filter: drop-shadow(0 2px 4px rgba(0, 212, 255, 0.3));
+      }
+
+      .timeline-slider-container {
+        position: relative;
+        margin: 20px 0;
+      }
+
+      .timeline-slider-track {
+        height: 10px;
+        background: rgba(42, 42, 42, 0.6);
+        backdrop-filter: blur(10px);
+        border-radius: 6px;
+        position: relative;
+        margin: 30px 0;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      body.light .timeline-slider-track {
+        background: rgba(236, 240, 241, 0.8);
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      .timeline-slider-range {
+        position: absolute;
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          rgba(0, 212, 255, 0.8) 0%,
+          rgba(0, 212, 255, 1) 50%,
+          rgba(0, 212, 255, 0.8) 100%
+        );
+        border-radius: 6px;
+        pointer-events: none;
+        box-shadow: 0 0 20px rgba(0, 212, 255, 0.5),
+          inset 0 1px 2px rgba(255, 255, 255, 0.3);
+        transition: all 0.3s ease;
+      }
+
+      body.light .timeline-slider-range {
+        background: linear-gradient(
+          90deg,
+          rgba(52, 152, 219, 0.8) 0%,
+          rgba(52, 152, 219, 1) 50%,
+          rgba(52, 152, 219, 0.8) 100%
+        );
+        box-shadow: 0 0 20px rgba(52, 152, 219, 0.5),
+          inset 0 1px 2px rgba(255, 255, 255, 0.4);
+      }
+
+      .timeline-slider {
+        position: absolute;
+        top: -10px;
+        width: calc(100% + 28px);
+        left: -14px;
+        height: 28px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: transparent;
+        pointer-events: none;
+      }
+
+      .timeline-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle at 30% 30%,
+          rgba(255, 255, 255, 0.3),
+          var(--accent)
+        );
+        cursor: grab;
+        pointer-events: all;
+        box-shadow: 0 4px 12px rgba(0, 212, 255, 0.5),
+          0 0 0 4px rgba(0, 212, 255, 0.2),
+          inset 0 2px 4px rgba(255, 255, 255, 0.3);
+        border: 3px solid rgba(10, 10, 10, 0.9);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .timeline-slider::-webkit-slider-thumb:hover {
+        transform: scale(1.2);
+        box-shadow: 0 6px 20px rgba(0, 212, 255, 0.7),
+          0 0 0 6px rgba(0, 212, 255, 0.3),
+          inset 0 2px 4px rgba(255, 255, 255, 0.4);
+      }
+
+      .timeline-slider::-webkit-slider-thumb:active {
+        cursor: grabbing;
+        transform: scale(1.1);
+      }
+
+      .timeline-slider::-moz-range-thumb {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle at 30% 30%,
+          rgba(255, 255, 255, 0.3),
+          var(--accent)
+        );
+        cursor: grab;
+        pointer-events: all;
+        box-shadow: 0 4px 12px rgba(0, 212, 255, 0.5),
+          0 0 0 4px rgba(0, 212, 255, 0.2),
+          inset 0 2px 4px rgba(255, 255, 255, 0.3);
+        border: 3px solid rgba(10, 10, 10, 0.9);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .timeline-slider::-moz-range-thumb:hover {
+        transform: scale(1.2);
+        box-shadow: 0 6px 20px rgba(0, 212, 255, 0.7),
+          0 0 0 6px rgba(0, 212, 255, 0.3),
+          inset 0 2px 4px rgba(255, 255, 255, 0.4);
+      }
+
+      .timeline-slider::-moz-range-thumb:active {
+        cursor: grabbing;
+        transform: scale(1.1);
+      }
+
+      .timeline-time-inputs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-top: 16px;
+      }
+
+      .time-input-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .time-input-group label {
+        color: var(--accent);
+        font-size: 0.9rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .time-input-group input {
+        background: rgba(26, 26, 26, 0.6);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(0, 212, 255, 0.2);
+        border-radius: 12px;
+        padding: 12px 16px;
+        color: var(--input-fg);
+        font-size: 0.95rem;
+        font-weight: 500;
+        font-family: "Courier New", monospace;
+        letter-spacing: 0.5px;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+      }
+
+      body.light .time-input-group input {
+        background: rgba(255, 255, 255, 0.7);
+        border-color: rgba(52, 152, 219, 0.3);
+      }
+
+      .time-input-group input:focus {
+        outline: none;
+        border-color: var(--accent);
+        background: rgba(0, 212, 255, 0.08);
+        box-shadow: 0 0 0 4px rgba(0, 212, 255, 0.15),
+          inset 0 2px 4px rgba(0, 0, 0, 0.15);
+        transform: translateY(-1px);
+      }
+
+      body.light .time-input-group input:focus {
+        background: rgba(52, 152, 219, 0.1);
+        box-shadow: 0 0 0 4px rgba(52, 152, 219, 0.2),
+          inset 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      .timeline-duration {
+        text-align: center;
+        color: var(--fg);
+        font-size: 1rem;
+        margin-top: 16px;
+        padding: 12px 20px;
+        background: rgba(0, 212, 255, 0.1);
+        backdrop-filter: blur(10px);
+        border-radius: 12px;
+        border: 1px solid rgba(0, 212, 255, 0.2);
+        font-weight: 600;
+        letter-spacing: 0.5px;
+      }
+
+      body.light .timeline-duration {
+        background: rgba(52, 152, 219, 0.15);
+        border-color: rgba(52, 152, 219, 0.3);
+      }
+
+      .timeline-duration strong {
+        color: var(--accent);
+        font-size: 1.1rem;
+        text-shadow: 0 2px 8px rgba(0, 212, 255, 0.3);
+      }
+
+      .timeline-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        cursor: pointer;
+        color: var(--accent);
+        font-size: 1rem;
+        font-weight: 600;
+        margin: 0 auto 20px;
+        user-select: none;
+        padding: 0;
+        background: none;
+        border: none;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        width: fit-content;
+      }
+
+      .timeline-toggle:hover {
+        transform: scale(1.02);
+      }
+
+      .timeline-toggle:hover .custom-checkbox {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 4px rgba(0, 212, 255, 0.15);
+      }
+
+      body.light .timeline-toggle:hover .custom-checkbox {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 4px rgba(52, 152, 219, 0.15);
+      }
+
+      .timeline-toggle span {
+        font-size: 1rem;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+      }
+
+      .timeline-toggle svg {
+        filter: drop-shadow(0 2px 4px rgba(0, 212, 255, 0.3));
+        transition: transform 0.3s ease;
+      }
+
+      .timeline-toggle:hover svg {
+        transform: scale(1.1);
+      }
+
+      /* Hide default checkbox */
+      .timeline-toggle input[type="checkbox"] {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* Custom checkbox */
+      .custom-checkbox {
+        width: 24px;
+        height: 24px;
+        border: 2px solid rgba(0, 212, 255, 0.4);
+        border-radius: 50%;
+        background: rgba(0, 212, 255, 0.05);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        position: relative;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+        opacity: 0.3;
+      }
+
+      body.light .custom-checkbox {
+        border-color: rgba(52, 152, 219, 0.4);
+        background: rgba(52, 152, 219, 0.08);
+      }
+
+      .timeline-toggle input[type="checkbox"]:checked + .custom-checkbox {
+        background: rgba(0, 212, 255, 0.2);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.2),
+          inset 0 2px 4px rgba(0, 0, 0, 0.2);
+      }
+
+      body.light
+        .timeline-toggle
+        input[type="checkbox"]:checked
+        + .custom-checkbox {
+        background: rgba(52, 152, 219, 0.2);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2),
+          inset 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      /* Checkmark animation */
+      .custom-checkbox::after {
+        content: "";
+        position: absolute;
+        width: 5px;
+        height: 10px;
+        border: solid #ffffff;
+        border-width: 0 2px 2px 0;
+        transform: rotate(45deg) scale(0);
+        opacity: 0;
+        transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      }
+
+      .timeline-toggle
+        input[type="checkbox"]:checked
+        + .custom-checkbox::after {
+        transform: rotate(45deg) scale(1);
+        opacity: 1;
       }
 
       #downloadProgressBar {
@@ -439,50 +890,139 @@
 
       .notification {
         position: fixed;
-        bottom: 20px;
-        right: 20px;
-        padding: 16px 20px;
+        bottom: 24px;
+        right: 24px;
+        padding: 18px 24px 18px 20px;
         border-radius: 16px;
-        background: var(--glass-bg);
-        backdrop-filter: blur(24px);
-        border: 1px solid var(--border);
+        background: rgba(26, 26, 26, 0.85);
+        backdrop-filter: blur(32px) saturate(180%);
+        -webkit-backdrop-filter: blur(32px) saturate(180%);
+        border: 1px solid rgba(255, 255, 255, 0.15);
         color: var(--fg);
         font-weight: 500;
-        max-width: 350px;
+        font-size: 0.95rem;
+        max-width: 380px;
+        min-width: 280px;
         z-index: 10000;
         opacity: 0;
-        transform: translateX(100%);
-        transition: all 0.4s ease;
+        transform: translateY(20px) translateX(0) scale(0.95);
+        transition: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
+          inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        overflow: hidden;
+      }
+
+      body.light .notification {
+        background: rgba(255, 255, 255, 0.9);
+        border-color: rgba(0, 0, 0, 0.1);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15),
+          inset 0 1px 0 rgba(255, 255, 255, 0.5);
+      }
+
+      .notification::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        background: currentColor;
+        opacity: 0.8;
       }
 
       .notification.show {
         opacity: 1;
-        transform: translateX(0);
+        transform: translateY(0) translateX(0) scale(1);
       }
 
       .notification.success {
-        background: linear-gradient(135deg, var(--success), #27ae60);
-        color: white;
+        background: rgba(46, 213, 115, 0.15);
+        backdrop-filter: blur(32px) saturate(180%);
+        -webkit-backdrop-filter: blur(32px) saturate(180%);
+        border: 1px solid rgba(46, 213, 115, 0.4);
+        color: #2ed573;
+        box-shadow: 0 8px 32px rgba(46, 213, 115, 0.3),
+          inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      }
+
+      body.light .notification.success {
+        background: rgba(39, 174, 96, 0.12);
+        border-color: rgba(39, 174, 96, 0.4);
+        color: #27ae60;
+        box-shadow: 0 8px 32px rgba(39, 174, 96, 0.2),
+          inset 0 1px 0 rgba(255, 255, 255, 0.3);
       }
 
       .notification.error {
-        background: linear-gradient(135deg, var(--error), #e74c3c);
-        color: white;
+        background: rgba(255, 71, 87, 0.15);
+        backdrop-filter: blur(32px) saturate(180%);
+        -webkit-backdrop-filter: blur(32px) saturate(180%);
+        border: 1px solid rgba(255, 71, 87, 0.4);
+        color: #ff4757;
+        box-shadow: 0 8px 32px rgba(255, 71, 87, 0.3),
+          inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      }
+
+      body.light .notification.error {
+        background: rgba(231, 76, 60, 0.12);
+        border-color: rgba(231, 76, 60, 0.4);
+        color: #e74c3c;
+        box-shadow: 0 8px 32px rgba(231, 76, 60, 0.2),
+          inset 0 1px 0 rgba(255, 255, 255, 0.3);
       }
 
       .notification.info {
-        background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-        color: white;
+        background: rgba(0, 212, 255, 0.15);
+        backdrop-filter: blur(32px) saturate(180%);
+        -webkit-backdrop-filter: blur(32px) saturate(180%);
+        border: 1px solid rgba(0, 212, 255, 0.4);
+        color: #00d4ff;
+        box-shadow: 0 8px 32px rgba(0, 212, 255, 0.3),
+          inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      }
+
+      body.light .notification.info {
+        background: rgba(52, 152, 219, 0.12);
+        border-color: rgba(52, 152, 219, 0.4);
+        color: #3498db;
+        box-shadow: 0 8px 32px rgba(52, 152, 219, 0.2),
+          inset 0 1px 0 rgba(255, 255, 255, 0.3);
       }
 
       .notification.warning {
-        background: linear-gradient(
-          135deg,
-          rgba(255, 165, 2, 0.2),
-          rgba(255, 165, 2, 0.35)
-        );
-        border: 1px solid var(--warning);
-        color: var(--warning);
+        background: rgba(255, 165, 2, 0.15);
+        backdrop-filter: blur(32px) saturate(180%);
+        -webkit-backdrop-filter: blur(32px) saturate(180%);
+        border: 1px solid rgba(255, 165, 2, 0.4);
+        color: #ffa502;
+        box-shadow: 0 8px 32px rgba(255, 165, 2, 0.3),
+          inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      }
+
+      body.light .notification.warning {
+        background: rgba(243, 156, 18, 0.12);
+        border-color: rgba(243, 156, 18, 0.4);
+        color: #f39c12;
+        box-shadow: 0 8px 32px rgba(243, 156, 18, 0.2),
+          inset 0 1px 0 rgba(255, 255, 255, 0.3);
+      }
+
+      .notification-icon {
+        width: 24px;
+        height: 24px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .notification-icon svg {
+        width: 100%;
+        height: 100%;
+        filter: drop-shadow(0 2px 4px currentColor);
       }
 
       .modal {
@@ -999,6 +1539,15 @@
         return `https://${trimmed}`;
       }
 
+      function thumbnailProxyUrl(thumbnailUrl) {
+        if (!thumbnailUrl) return "";
+        const insecure = insecureSslToggle ? insecureSslToggle.checked : false;
+        return (
+          `/api/thumbnail?url=${encodeURIComponent(thumbnailUrl)}` +
+          (insecure ? "&insecure_ssl=1" : "")
+        );
+      }
+
       function isValidUrl(value) {
         if (!value) return false;
         let candidate = value;
@@ -1034,6 +1583,74 @@
         setTheme(next);
         localStorage.setItem("theme", next);
         showNotification(`Switched to ${next} mode`, "info", 2000);
+      }
+
+      // Thumbnail preview functions
+      let thumbnailPreviewElement = null;
+
+      function showThumbnailPreview(targetEl, thumbnailUrl) {
+        // Ensure we have a preview element
+        if (!thumbnailPreviewElement) {
+          thumbnailPreviewElement = document.createElement("div");
+          thumbnailPreviewElement.className = "video-thumbnail-preview";
+        }
+
+        // Try to attach the preview into the nearest thumbnail container so
+        // absolute positioning is relative to that container (which is
+        // `position: relative`). Fallback to document.body if container not found.
+        let container = null;
+        try {
+          container =
+            targetEl && targetEl.closest
+              ? targetEl.closest(".video-thumbnail-container")
+              : null;
+        } catch (e) {
+          container = null;
+        }
+
+        if (container) {
+          if (thumbnailPreviewElement.parentElement !== container) {
+            if (thumbnailPreviewElement.parentElement)
+              thumbnailPreviewElement.parentElement.removeChild(
+                thumbnailPreviewElement
+              );
+            container.appendChild(thumbnailPreviewElement);
+          }
+        } else {
+          if (thumbnailPreviewElement.parentElement !== document.body) {
+            if (thumbnailPreviewElement.parentElement)
+              thumbnailPreviewElement.parentElement.removeChild(
+                thumbnailPreviewElement
+              );
+            document.body.appendChild(thumbnailPreviewElement);
+          }
+        }
+
+        // Set image and show with slight delay for transition
+        thumbnailPreviewElement.innerHTML = `<img src="${thumbnailUrl}" alt="Preview">`;
+        const previewEl = thumbnailPreviewElement;
+        setTimeout(() => {
+          if (previewEl && previewEl.classList) {
+            previewEl.classList.add("show");
+          }
+        }, 10);
+      }
+
+      function hideThumbnailPreview() {
+        if (!thumbnailPreviewElement) return;
+        thumbnailPreviewElement.classList.remove("show");
+        // Remove element after transition to keep DOM clean
+        setTimeout(() => {
+          if (
+            thumbnailPreviewElement &&
+            thumbnailPreviewElement.parentElement
+          ) {
+            thumbnailPreviewElement.parentElement.removeChild(
+              thumbnailPreviewElement
+            );
+          }
+          thumbnailPreviewElement = null;
+        }, 450);
       }
 
       themeToggle.addEventListener("click", toggleTheme);
@@ -1127,10 +1744,22 @@
         }
       }
 
+      // Global variables for trim
+      let currentVideoDuration = 0;
+      let trimStartTime = 0;
+      let trimEndTime = 0;
+      let trimEnabled = false;
+
       // Show video info
       function showVideoInfo(data, url) {
         // Store available audio languages
         currentAvailableAudioLanguages = data.available_audio_languages || [];
+
+        // Parse and store duration
+        currentVideoDuration = parseDuration(data.duration || "0:00");
+        trimStartTime = 0;
+        trimEndTime = currentVideoDuration;
+        trimEnabled = false;
 
         const qualities =
           Array.isArray(data.available_qualities) &&
@@ -1145,12 +1774,15 @@
 
         const audioBtn = `<button class="quality-link audio-only" onclick="handleQualitySelection('best', '${url}', true)">Audio Only</button>`;
 
+        const rawThumb = data.thumbnail || "";
+        const thumbSrc = rawThumb ? thumbnailProxyUrl(rawThumb) : "";
+
         videoInfoContainer.innerHTML = `
                 <div class="video-grid">
-                    <div>
+                    <div class="video-thumbnail-container">
                         ${
-                          data.thumbnail
-                            ? `<img src="${data.thumbnail}" alt="Video thumbnail" class="video-thumbnail" onclick="window.open('${data.thumbnail}', '_blank')">`
+                          thumbSrc
+                            ? `<img src="${thumbSrc}" alt="Video thumbnail" class="video-thumbnail" onmouseenter="showThumbnailPreview(this, '${thumbSrc}')" onmouseleave="hideThumbnailPreview()" onclick="window.open('${thumbSrc}', '_blank')">`
                             : ""
                         }
                     </div>
@@ -1166,6 +1798,41 @@
                     <div class="video-title" contenteditable="true" oninput="updateVideoTitle(this.innerText)">${
                       data.title || "Untitled Video"
                     }</div>
+                </div>
+                <div class="timeline-controls" id="timelineControls" style="${
+                  currentVideoDuration > 0 ? "" : "display: none;"
+                }">
+                    <label class="timeline-toggle">
+                        <input type="checkbox" id="trimToggle" onchange="toggleTrimControls()">
+                        <div class="custom-checkbox"></div>
+                        <span>Trim Video (Cut Timeline)</span>
+                    </label>
+                    <div id="trimControlsContent" style="display: none;">
+                        <div class="timeline-slider-container">
+                            <div class="timeline-slider-track">
+                                <div class="timeline-slider-range" id="timelineRange"></div>
+                            </div>
+                            <input type="range" id="startSlider" class="timeline-slider" min="0" max="${currentVideoDuration}" value="0" step="1" oninput="updateTrimStart(this.value)">
+                            <input type="range" id="endSlider" class="timeline-slider" min="0" max="${currentVideoDuration}" value="${currentVideoDuration}" step="1" oninput="updateTrimEnd(this.value)">
+                        </div>
+                        <div class="timeline-time-inputs">
+                            <div class="time-input-group">
+                                <label>Start Time (HH:MM:SS)</label>
+                                <input type="text" id="startTimeInput" value="00:00:00" placeholder="00:00:00" onchange="updateTrimStartFromInput(this.value)">
+                            </div>
+                            <div class="time-input-group">
+                                <label>End Time (HH:MM:SS)</label>
+                                <input type="text" id="endTimeInput" value="${formatTime(
+                                  currentVideoDuration
+                                )}" placeholder="00:00:00" onchange="updateTrimEndFromInput(this.value)">
+                            </div>
+                        </div>
+                        <div class="timeline-duration">
+                            Clip Duration: <strong id="clipDuration">${formatTime(
+                              currentVideoDuration
+                            )}</strong>
+                        </div>
+                    </div>
                 </div>
             `;
 
@@ -1239,6 +1906,105 @@
         currentVideoTitle = newTitle;
       }
 
+      // Parse duration string to seconds
+      function parseDuration(duration) {
+        if (typeof duration === "number") return duration;
+        const parts = String(duration).split(":").reverse();
+        let seconds = 0;
+        if (parts[0]) seconds += parseInt(parts[0]) || 0;
+        if (parts[1]) seconds += (parseInt(parts[1]) || 0) * 60;
+        if (parts[2]) seconds += (parseInt(parts[2]) || 0) * 3600;
+        return seconds;
+      }
+
+      // Format seconds to HH:MM:SS
+      function formatTime(seconds) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = Math.floor(seconds % 60);
+        return `${String(h).padStart(2, "0")}:${String(m).padStart(
+          2,
+          "0"
+        )}:${String(s).padStart(2, "0")}`;
+      }
+
+      // Toggle trim controls visibility
+      function toggleTrimControls() {
+        const toggle = document.getElementById("trimToggle");
+        const content = document.getElementById("trimControlsContent");
+        trimEnabled = toggle.checked;
+        content.style.display = trimEnabled ? "block" : "none";
+        if (trimEnabled) {
+          updateTrimVisuals();
+        }
+      }
+
+      // Update trim start from slider
+      function updateTrimStart(value) {
+        trimStartTime = Math.max(
+          0,
+          Math.min(parseFloat(value), trimEndTime - 1)
+        );
+        document.getElementById("startTimeInput").value =
+          formatTime(trimStartTime);
+        document.getElementById("startSlider").value = trimStartTime;
+        updateTrimVisuals();
+      }
+
+      // Update trim end from slider
+      function updateTrimEnd(value) {
+        trimEndTime = Math.min(
+          currentVideoDuration,
+          Math.max(parseFloat(value), trimStartTime + 1)
+        );
+        document.getElementById("endTimeInput").value = formatTime(trimEndTime);
+        document.getElementById("endSlider").value = trimEndTime;
+        updateTrimVisuals();
+      }
+
+      // Update trim start from text input
+      function updateTrimStartFromInput(value) {
+        const seconds = parseDuration(value);
+        if (!isNaN(seconds) && seconds >= 0 && seconds < trimEndTime) {
+          trimStartTime = seconds;
+          document.getElementById("startSlider").value = trimStartTime;
+          updateTrimVisuals();
+        } else {
+          document.getElementById("startTimeInput").value =
+            formatTime(trimStartTime);
+        }
+      }
+
+      // Update trim end from text input
+      function updateTrimEndFromInput(value) {
+        const seconds = parseDuration(value);
+        if (
+          !isNaN(seconds) &&
+          seconds > trimStartTime &&
+          seconds <= currentVideoDuration
+        ) {
+          trimEndTime = seconds;
+          document.getElementById("endSlider").value = trimEndTime;
+          updateTrimVisuals();
+        } else {
+          document.getElementById("endTimeInput").value =
+            formatTime(trimEndTime);
+        }
+      }
+
+      // Update visual representation of trim range
+      function updateTrimVisuals() {
+        const range = document.getElementById("timelineRange");
+        const clipDuration = document.getElementById("clipDuration");
+        if (range && clipDuration && currentVideoDuration > 0) {
+          const startPercent = (trimStartTime / currentVideoDuration) * 100;
+          const endPercent = (trimEndTime / currentVideoDuration) * 100;
+          range.style.left = startPercent + "%";
+          range.style.width = endPercent - startPercent + "%";
+          clipDuration.textContent = formatTime(trimEndTime - trimStartTime);
+        }
+      }
+
       // Start download
       async function startDownload(
         quality,
@@ -1288,6 +2054,15 @@
           // Add audio language if specified
           if (audioLanguage) {
             requestBody.audio_language = audioLanguage;
+          }
+
+          // Add trim parameters if enabled
+          if (
+            trimEnabled &&
+            (trimStartTime > 0 || trimEndTime < currentVideoDuration)
+          ) {
+            requestBody.trim_start = trimStartTime;
+            requestBody.trim_end = trimEndTime;
           }
 
           if (insecureSslEnabled) {
@@ -1440,31 +2215,42 @@
         progressThumb.innerHTML = "🎬";
       }
 
-      // Notification system
+      // Notification system with improved glassmorphism
       function showNotification(message, type = "info", duration = 5000) {
+        const icons = {
+          success: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>`,
+          error: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="15" y1="9" x2="9" y2="15"></line>
+            <line x1="9" y1="9" x2="15" y2="15"></line>
+          </svg>`,
+          warning: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>`,
+          info: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>`,
+        };
+
         const notification = document.createElement("div");
         notification.className = `notification ${type}`;
         notification.innerHTML = `
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <div>${
-                      type === "success"
-                        ? "✅"
-                        : type === "error"
-                        ? "❌"
-                        : type === "warning"
-                        ? "⚠️"
-                        : "ℹ️"
-                    }</div>
-                    <div>${message}</div>
-                </div>
-            `;
+          <div class="notification-icon">${icons[type] || icons.info}</div>
+          <div style="flex: 1;">${message}</div>
+        `;
 
         document.body.appendChild(notification);
         setTimeout(() => notification.classList.add("show"), 100);
 
         setTimeout(() => {
           notification.classList.remove("show");
-          setTimeout(() => notification.remove(), 400);
+          setTimeout(() => notification.remove(), 500);
         }, duration);
       }
 
