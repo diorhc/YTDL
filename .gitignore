@@ -1,70 +1,52 @@
-# Root .gitignore - common ignores for this workspace
+# v3 .gitignore - ignores for Node + Vite + Tauri (Rust)
 
-# Node / JS
+# Node modules
 node_modules/
+
+# Logs
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
 
-# Vite / build outputs
+# Build outputs
 /dist/
 /build/
+out/
 .vite/
 .cache/
-out/
 
-# Tauri / Rust
-src-tauri/target/
-target/
-**/target/
-src-tauri/tauri-debug.log
-v3/src-tauri/gen/android/app/src/main/jniLibs/
-
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.pyc
-*.egg-info/
-dist/
-build/
-venv/
-.venv/
-env/
-ENV/
-pip-wheel-metadata/
-python_embedded/bin/
-python_embedded/downloads/
-
-# Project-specific large/download folders
-**/downloads/
-
-# Environment / secret files
+# Environment files (do NOT commit secrets)
 .env
 .env.*.local
 .env.local
 
-# Logs & temp
-*.log
-*.tmp
-*.temp
-*.swp
-npm-debug.log*
+# Tauri / Rust build outputs
+src-tauri/target/
+target/
+**/target/
 
-# Coverage
-coverage/
-.nyc_output/
+# Tauri logs / bundles
+src-tauri/tauri-debug.log
 
-# IDEs
+# IDEs and editors
 .vscode/
 .idea/
 *.iml
 
-# OS files
+# OS metadata
 .DS_Store
 Thumbs.db
 ehthumbs.db
 
-# Misc
+# Coverage reports
+coverage/
+.nyc_output/
+
+# Misc temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+
+# Storybook / static build caches
 storybook-static/
