@@ -7,11 +7,12 @@ You can override these by setting environment variables.
 """
 
 import os
+import secrets
 from pathlib import Path
 
 # Application Settings
 APP_NAME = "YTDL"
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.1.0"
 DEBUG_MODE = os.environ.get('DEBUG_MODE', 'false').lower() in ('true', '1', 'yes', 'on')
 
 # Flask Settings
@@ -54,6 +55,46 @@ SOCKET_TIMEOUT = int(os.environ.get('SOCKET_TIMEOUT', '60'))
 
 # Performance Settings
 HTTP_CHUNK_SIZE = int(os.environ.get('HTTP_CHUNK_SIZE', '10485760'))  # 10MB
+
+# Rate Limiting Settings
+RATE_LIMIT_REQUESTS = int(os.environ.get('RATE_LIMIT_REQUESTS', '10'))  # Max requests
+RATE_LIMIT_WINDOW = int(os.environ.get('RATE_LIMIT_WINDOW', '60'))  # Per seconds
+
+# Validation Settings
+MAX_URL_RETRIES = int(os.environ.get('MAX_URL_RETRIES', '3'))
+DOWNLOAD_TIMEOUT = int(os.environ.get('DOWNLOAD_TIMEOUT', '1800'))  # 30 minutes
+
+
+def validate_config() -> bool:
+    """Validate configuration settings."""
+    errors = []
+    
+    # Validate numeric ranges
+    if MAX_RETRIES < 1 or MAX_RETRIES > 10:
+        errors.append(f"MAX_RETRIES must be between 1 and 10, got {MAX_RETRIES}")
+    
+    if VIDEO_INFO_CACHE_TTL < 0 or VIDEO_INFO_CACHE_TTL > 3600:
+        errors.append(f"VIDEO_INFO_CACHE_TTL must be between 0 and 3600, got {VIDEO_INFO_CACHE_TTL}")
+    
+    if FLASK_PORT < 1 or FLASK_PORT > 65535:
+        errors.append(f"FLASK_PORT must be between 1 and 65535, got {FLASK_PORT}")
+    
+    if HTTP_CHUNK_SIZE < 1024 or HTTP_CHUNK_SIZE > 104857600:  # 1KB to 100MB
+        errors.append(f"HTTP_CHUNK_SIZE must be between 1KB and 100MB, got {HTTP_CHUNK_SIZE}")
+    
+    # Validate paths
+    try:
+        DOWNLOAD_PATH.mkdir(exist_ok=True, parents=True)
+    except Exception as e:
+        errors.append(f"Cannot create DOWNLOAD_PATH: {e}")
+    
+    if errors:
+        print("Configuration validation errors:")
+        for error in errors:
+            print(f"  - {error}")
+        return False
+    
+    return True
 
 
 def get_config_summary() -> dict:

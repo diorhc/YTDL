@@ -1,0 +1,7 @@
+# Copy to key.properties and fill with your release keystore values.
+# File location: src-tauri/gen/android/key.properties
+
+storeFile=../release-keystore.jks
+storePassword=CHANGE_ME
+keyAlias=release
+keyPassword=CHANGE_ME

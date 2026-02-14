@@ -16,7 +16,6 @@ import sys
 import argparse
 import tempfile
 import time
-import concurrent.futures
 import random
 import platform
 import re
@@ -24,6 +23,7 @@ import subprocess
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple, List
+from concurrent.futures import ThreadPoolExecutor, wait
 
 import yt_dlp
 from colorama import init, Fore
@@ -50,7 +50,7 @@ class ErrorHandler:
     
     @staticmethod
     def get_robust_options(base_opts: Dict[str, Any]) -> Dict[str, Any]:
-        """Enhanced yt-dlp options for maximum success rate."""
+        """Enhanced yt-dlp options for maximum success rate and speed."""
         robust_opts = base_opts.copy()
         robust_opts.update({
             'http_headers': {
@@ -66,7 +66,9 @@ class ErrorHandler:
             'fragment_retries': 8,
             'retry_sleep_functions': {'http': lambda n: min(60, 2 ** n + random.uniform(0, 2))},
             'socket_timeout': 60,  # Increased timeout
-            'http_chunk_size': 10485760,
+            'http_chunk_size': 10485760,  # 10MB chunks for better throughput
+            'concurrent_fragment_downloads': 4,  # Download 4 fragments concurrently
+            'buffersize': 16384,  # 16KB buffer size
             'geo_bypass': True,
             'geo_bypass_country': 'US',
             'extractor_args': {
@@ -257,6 +259,9 @@ class YouTubeDownloader:
         self.trim_end = None  # Trim end time in seconds
         # If true, pass nocheckcertificate=True to yt-dlp options (insecure)
         self.insecure_ssl = bool(insecure_ssl)
+        # Progress throttling to reduce overhead
+        self._last_progress_time = 0
+        self._progress_throttle_interval = 0.5  # Only send progress updates every 0.5 seconds
     
     def _is_cancelled(self):
         """Check if the current download has been cancelled (for web interface)."""
@@ -267,6 +272,33 @@ class YouTubeDownloader:
         except Exception:
             pass
         return False
+    
+    def _detect_platform(self, url: str) -> str:
+        """Detect video platform from URL.
+        
+        Returns:
+            Platform name: 'youtube', 'vk', 'dzen', 'rutube', 'instagram', 'tiktok', or 'unknown'
+        """
+        url_lower = url.lower()
+        
+        if any(domain in url_lower for domain in ['youtube.com', 'youtu.be', 'youtube-nocookie.com']):
+            return 'youtube'
+        elif any(domain in url_lower for domain in ['vk.com', 'vkontakte.ru']):
+            return 'vk'
+        elif any(domain in url_lower for domain in ['dzen.ru', 'zen.yandex']):
+            return 'dzen'
+        elif 'rutube.ru' in url_lower:
+            return 'rutube'
+        elif 'instagram.com' in url_lower:
+            return 'instagram'
+        elif 'tiktok.com' in url_lower:
+            return 'tiktok'
+        elif 'twitch.tv' in url_lower:
+            return 'twitch'
+        elif any(domain in url_lower for domain in ['vimeo.com', 'player.vimeo.com']):
+            return 'vimeo'
+        else:
+            return 'unknown'
         
     def set_progress_hook(self, callback):
         """Set progress hook callback for web interface compatibility."""
@@ -276,6 +308,79 @@ class YouTubeDownloader:
         """Apply SSL options based on insecure_ssl flag."""
         if self.insecure_ssl:
             opts['nocheckcertificate'] = True
+        return opts
+    
+    def _apply_platform_specific_options(self, opts: Dict[str, Any], platform: str) -> Dict[str, Any]:
+        """Apply platform-specific optimizations to download options.
+        
+        Args:
+            opts: Base yt-dlp options dict
+            platform: Platform name from _detect_platform
+            
+        Returns:
+            Modified options dict with platform-specific settings
+        """
+        if platform == 'dzen':
+            # Dzen.ru needs special handling
+            opts.update({
+                'http_headers': {
+                    **opts.get('http_headers', {}),
+                    'Referer': 'https://dzen.ru/',
+                    'Origin': 'https://dzen.ru',
+                },
+                'extractor_args': {
+                    'dzen': {
+                        'api_version': 'v3',
+                    }
+                },
+            })
+            if config.DEBUG_MODE:
+                print(f"{Fore.CYAN}🔧 Applying Dzen.ru specific options")
+        
+        elif platform == 'vk':
+            # VK needs robust options from the start
+            opts = self.error_handler.get_robust_options(opts)
+            if config.DEBUG_MODE:
+                print(f"{Fore.CYAN}🔧 Applying VK specific options")
+        
+        elif platform == 'rutube':
+            # Rutube specific handling
+            opts.update({
+                'http_headers': {
+                    **opts.get('http_headers', {}),
+                    'Referer': 'https://rutube.ru/',
+                },
+            })
+            if config.DEBUG_MODE:
+                print(f"{Fore.CYAN}🔧 Applying Rutube specific options")
+        
+        elif platform == 'instagram' or platform == 'tiktok':
+            # Social media platforms need aggressive headers
+            opts = self.error_handler.get_robust_options(opts)
+            opts.update({
+                'http_headers': {
+                    **opts.get('http_headers', {}),
+                    'Accept-Language': 'en-US,en;q=0.9',
+                },
+            })
+            if config.DEBUG_MODE:
+                print(f"{Fore.CYAN}🔧 Applying {platform.title()} specific options")
+        
+        elif platform == 'twitch':
+            # Twitch needs special fragment handling and format selection
+            opts.update({
+                'format': 'best[ext=mp4]/best',  # Prefer MP4 container
+                'fragment_retries': 10,
+                'skip_unavailable_fragments': True,  # Skip problematic fragments
+                'ignoreerrors': True,
+                'http_headers': {
+                    **opts.get('http_headers', {}),
+                    'Client-ID': 'kimne78kx3ncx6brgo4mv6wki5h1ko',  # Public Twitch client ID
+                },
+            })
+            if config.DEBUG_MODE:
+                print(f"{Fore.CYAN}🔧 Applying Twitch specific options (fragment handling)")
+        
         return opts
 
     def _inject_ffmpeg_location(self, opts: Dict[str, Any]) -> Dict[str, Any]:
@@ -297,6 +402,12 @@ class YouTubeDownloader:
         ]
         return any(indicator.lower() in error_str.lower() for indicator in ssl_indicators)
         
+    def _postprocessor_hook(self, d: Dict[str, Any]) -> None:
+        """Hook called after post-processing to add delays for file handle release."""
+        # Add delay after post-processing to ensure file handles are released on Windows
+        if d.get('status') == 'finished' and platform.system() == 'Windows':
+            time.sleep(1.0)  # Longer delay for Windows file handle release
+    
     def _progress_hook(self, d: Dict[str, Any]) -> None:
         """Internal progress hook that calls external callback if set, and aborts if cancelled."""
         # Abort download if cancelled
@@ -347,7 +458,13 @@ class YouTubeDownloader:
 
         if self.progress_hook_callback:
             try:
-                self.progress_hook_callback(d)
+                # Throttle progress updates to reduce overhead (except for finished status)
+                current_time = time.time()
+                is_finished = d.get('status') in ('finished', 'done', 'error')
+                
+                if is_finished or (current_time - self._last_progress_time) >= self._progress_throttle_interval:
+                    self._last_progress_time = current_time
+                    self.progress_hook_callback(d)
             except Exception as callback_err:
                 print(f"{Fore.RED}❌ Error in progress callback: {callback_err}")
 
@@ -367,8 +484,13 @@ class YouTubeDownloader:
             width = info.get('width', 0)
             has_audio = info.get('has_audio')
 
-            # Check if video has no audio (common issue with Dzen.ru)
-            if has_audio is False and config.DEBUG_MODE:
+            # Check if video has no audio - but only warn for final files, not intermediate streams
+            # Intermediate streams (video-only or audio-only) are expected to have no audio/video
+            is_intermediate_stream = any(marker in path.name.lower() for marker in [
+                'video.', 'audio.', '.fdash-', '.dash-', '.f251-', '.f140-'
+            ])
+            
+            if has_audio is False and config.DEBUG_MODE and not is_intermediate_stream:
                 print(f"{Fore.YELLOW}⚠️  Warning: Downloaded file has no audio stream!")
                 print(f"{Fore.YELLOW}   This is a known issue with some Dzen.ru videos")
                 print(f"{Fore.YELLOW}   File: {path.name}")
@@ -619,6 +741,15 @@ class YouTubeDownloader:
             
     def get_video_info(self, url: str) -> Optional[Dict[str, Any]]:
         """Get video information for web interface compatibility with improved error handling."""
+        if not url or not isinstance(url, str):
+            logger.error("Invalid URL: empty or not a string")
+            return None
+        
+        url = url.strip()
+        if not url:
+            logger.error("Invalid URL: empty string after strip")
+            return None
+        
         try:
             base_opts = {
                 'quiet': True,
@@ -648,14 +779,31 @@ class YouTubeDownloader:
             
             # Apply SSL options
             opts = self._apply_ssl_options(opts)
+            
+            # Apply platform-specific options
+            detected_platform = self._detect_platform(url)
+            opts = self._apply_platform_specific_options(opts, detected_platform)
 
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False)
+                logger.info(f"Successfully retrieved video info for: {url}")
                 return info
                 
-        except Exception as e:
+        except yt_dlp.utils.DownloadError as e:
             err_str = str(e)
-            print(f"{Fore.RED}❌ Error getting video info: {e}")
+            logger.error(f"DownloadError getting video info: {e}")
+            
+            # Provide helpful error messages
+            if '404' in err_str or 'not found' in err_str.lower():
+                print(f"{Fore.RED}❌ Video not found (404). Check if the URL is correct and the video is available.")
+            elif '403' in err_str or 'forbidden' in err_str.lower():
+                print(f"{Fore.RED}❌ Access forbidden (403). The video may be private or geo-blocked.")
+            elif 'private' in err_str.lower():
+                print(f"{Fore.RED}❌ This video is private. You need proper authentication to access it.")
+            elif 'geo' in err_str.lower() or 'location' in err_str.lower():
+                print(f"{Fore.RED}❌ Video is geo-blocked in your region.")
+            else:
+                print(f"{Fore.RED}❌ Error getting video info: {e}")
 
             # If it's an SSL certificate verification issue, try with nocheckcertificate
             if self._is_ssl_error(err_str) and not self.insecure_ssl:
@@ -672,9 +820,11 @@ class YouTubeDownloader:
                     with yt_dlp.YoutubeDL(ssl_opts) as ydl:
                         info = ydl.extract_info(url, download=False)
                         print(f"{Fore.GREEN}✅ Retrieved info using nocheckcertificate fallback")
+                        logger.info("Successfully retrieved video info using SSL fallback")
                         return info
                 except Exception as ssl_e:
                     err_str = str(ssl_e)
+                    logger.error(f"SSL-fallback failed: {ssl_e}")
                     print(f"{Fore.RED}❌ SSL-fallback failed: {ssl_e}")
                     
                     # Check for JSON parse errors which indicate the site may be blocking
@@ -682,6 +832,12 @@ class YouTubeDownloader:
                         print(f"{Fore.YELLOW}⚠️  Site appears to be blocking requests or requires authentication")
                         print(f"{Fore.YELLOW}   Try: 1) Check if video is public, 2) Use cookies file, 3) Try different URL")
                         return None
+            return None
+
+        except Exception as e:
+            err_str = str(e)
+            logger.error(f"Unexpected error getting video info: {e}", exc_info=True)
+            print(f"{Fore.RED}❌ Error getting video info: {e}")
 
             # Try fallback with minimal options
             try:
@@ -694,8 +850,10 @@ class YouTubeDownloader:
                 }
                 with yt_dlp.YoutubeDL(fallback_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
+                    logger.info("Successfully retrieved video info using minimal fallback")
                     return info
             except Exception as fallback_e:
+                logger.error(f"Fallback also failed: {fallback_e}")
                 print(f"{Fore.RED}❌ Fallback also failed: {fallback_e}")
                 return None
     
@@ -726,13 +884,46 @@ class YouTubeDownloader:
             print(f"{Fore.RED}❌ URL cannot be empty")
             return False
         
+        # Fix common URL issues (e.g., Dzen.ru URL parsing)
+        # Remove any garbage after the URL (e.g., '691240098caca17dahttps')
+        if 'dzen.ru' in url or 'zen.yandex' in url:
+            # Extract just the valid URL part
+            match = re.match(r'(https?://[^\s]+?)(?:https?://|$)', url)
+            if match:
+                original_url = url
+                url = match.group(1)
+                if url != original_url:
+                    print(f"{Fore.CYAN}🔧 Sanitized Dzen URL: {url}")
+                    logger.info(f"Sanitized Dzen URL from '{original_url}' to '{url}'")
+        
         # Basic URL validation
         if not url.startswith(('http://', 'https://')):
             print(f"{Fore.RED}❌ URL must start with http:// or https://")
             return False
         
+        # Validate URL doesn't contain multiple protocols
+        if url.count('http://') + url.count('https://') > 1:
+            print(f"{Fore.RED}❌ Invalid URL: contains multiple protocol declarations")
+            return False
+        
         print(f"{Fore.MAGENTA}🎬 Unified Video Downloader")
+        
+        # Detect platform and show icon
+        detected_platform = self._detect_platform(url)
+        platform_emoji = {
+            'youtube': '🔴',
+            'vk': '🔵',
+            'dzen': '🟡',
+            'rutube': '🟠',
+            'instagram': '🟣',
+            'tiktok': '⬛',
+            'twitch': '🟣',
+            'vimeo': '🔵',
+            'unknown': '❓'
+        }.get(detected_platform, '❓')
+        
         print(f"{Fore.CYAN}🎯 URL: {url}")
+        print(f"{Fore.CYAN}📺 Platform: {platform_emoji} {detected_platform.upper()}")
         print(f"{Fore.CYAN}📺 Quality: {quality}")
         
         if audio_only:
@@ -864,8 +1055,9 @@ class YouTubeDownloader:
         print(f"{Fore.CYAN}📥 STANDARD MODE - Reliable Download")
         print(f"{Fore.CYAN}🎯 Target quality: {quality}")
 
-        # Check if this is Dzen.ru
-        is_dzen = 'dzen.ru' in url or 'zen.yandex' in url
+        # Detect platform for special handling
+        detected_platform = self._detect_platform(url)
+        is_dzen = detected_platform == 'dzen'
 
         # Check if audio language is specified
         selected_audio_lang = getattr(self, 'audio_language', None)
@@ -912,6 +1104,8 @@ class YouTubeDownloader:
                     'nooverwrites': False,  # Always re-download, don't skip existing files
                     'quiet': not config.DEBUG_MODE,  # Hide yt-dlp output when DEBUG_MODE is off
                     'no_warnings': not config.DEBUG_MODE,  # Hide warnings when DEBUG_MODE is off
+                    'nopart': False,  # Allow .part files for resume capability
+                    'concurrent_fragment_downloads': 1,  # Reduce concurrent downloads for stability on Windows
                 }
                 
                 # Only add metadata postprocessors if FFmpeg is available
@@ -937,6 +1131,12 @@ class YouTubeDownloader:
                 if self.progress_hook_callback:
                     opts['progress_hooks'] = [self._progress_hook]
                 
+                # Add postprocessor hook for Windows file handling
+                opts['postprocessor_hooks'] = [self._postprocessor_hook]
+                
+                # Apply platform-specific options
+                opts = self._apply_platform_specific_options(opts, detected_platform)
+                
                 # Apply error recovery on retries
                 if attempt > 0:
                     print(f"{Fore.YELLOW}🔄 Retry {attempt + 1} with format: {fmt}")
@@ -954,6 +1154,43 @@ class YouTubeDownloader:
             except Exception as e:
                 error_msg = str(e)
                 print(f"{Fore.RED}❌ Format {fmt} failed: {error_msg}")
+                
+                # Platform-specific error guidance
+                if detected_platform == 'dzen' and ("400" in error_msg or "404" in error_msg):
+                    print(f"{Fore.YELLOW}💡 Dzen.ru troubleshooting:")
+                    print(f"{Fore.YELLOW}   • Video may have been deleted or made private")
+                    print(f"{Fore.YELLOW}   • Check if the URL is correct and accessible in browser")
+                    print(f"{Fore.YELLOW}   • Some Dzen videos require authentication")
+                    if attempt == 0:
+                        print(f"{Fore.YELLOW}   • Retrying with different format...")
+                        continue
+                    else:
+                        return False
+                elif detected_platform == 'rutube' and ("WinError 5" in error_msg or "Access is denied" in error_msg):
+                    print(f"{Fore.YELLOW}💡 Rutube file access issue detected")
+                    print(f"{Fore.YELLOW}   • Close any programs that might be using the file")
+                    print(f"{Fore.YELLOW}   • Retrying with delay...")
+                    time.sleep(2.0)
+                    continue
+                
+                # Twitch-specific fragment errors
+                if detected_platform == 'twitch' and ("Initialization fragment" in error_msg or "fragment" in error_msg.lower()):
+                    print(f"{Fore.YELLOW}💡 Twitch fragment error detected")
+                    if attempt == 0:
+                        print(f"{Fore.YELLOW}   • Trying alternative format without separate streams...")
+                        # For next attempt, force combined format
+                        opts['format'] = 'best[ext=mp4]/best'
+                        opts['skip_unavailable_fragments'] = True
+                        continue
+                    elif attempt < 2:
+                        print(f"{Fore.YELLOW}   • Retrying with more aggressive fragment handling...")
+                        time.sleep(2.0)
+                        continue
+                    else:
+                        print(f"{Fore.RED}❌ Twitch video has streaming issues (fragment corruption)")
+                        print(f"{Fore.YELLOW}   • This video may still be processing")
+                        print(f"{Fore.YELLOW}   • Try again later or use a different quality")
+                        return False
                 
                 if "403" in error_msg or "Forbidden" in error_msg:
                     print(f"{Fore.YELLOW}🛡️ 403 Forbidden error detected on attempt {attempt + 1}")
@@ -1035,6 +1272,9 @@ class YouTubeDownloader:
         if self.progress_hook_callback:
             opts['progress_hooks'] = [self._progress_hook]
         
+        # Add postprocessor hook for Windows file handling
+        opts['postprocessor_hooks'] = [self._postprocessor_hook]
+        
         opts = self._add_cookies_option(opts)
         try:
             if self._is_cancelled():
@@ -1104,30 +1344,66 @@ class YouTubeDownloader:
 
         Returns True on success, False on failure.
         """
-        try:
-            opts = self._inject_ffmpeg_location(opts)
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.download([url])
-            return True
-        except Exception as e:
-            err_str = str(e)
-            
-            # SSL fallback only if not already using insecure mode
-            if self._is_ssl_error(err_str) and not self.insecure_ssl:
-                print(f"{Fore.YELLOW}⚠️  SSL certificate verification failed during download. Retrying with 'nocheckcertificate'=True.")
-                try:
-                    ssl_opts = {**opts, 'nocheckcertificate': True}
-                    ssl_opts = self._inject_ffmpeg_location(ssl_opts)
-                    with yt_dlp.YoutubeDL(ssl_opts) as ydl:
-                        ydl.download([url])
-                    print(f"{Fore.GREEN}✅ Download succeeded using nocheckcertificate fallback")
-                    return True
-                except Exception as ssl_e:
-                    print(f"{Fore.RED}❌ SSL-fallback download failed: {ssl_e}")
+        max_retries = 3
+        for retry in range(max_retries):
+            try:
+                opts = self._inject_ffmpeg_location(opts)
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    ydl.download([url])
+                
+                # Add delay on Windows after download to ensure file handles are released
+                if platform.system() == 'Windows':
+                    if config.DEBUG_MODE:
+                        logger.debug("Adding 1.0s delay for Windows file handle release")
+                    time.sleep(1.0)  # Longer delay for better reliability
+                
+                return True
+            except Exception as e:
+                err_str = str(e)
+                
+                # Check for Windows file permission errors (WinError 5)
+                if 'WinError 5' in err_str or 'Access is denied' in err_str:
+                    logger.warning(f"Windows file access error on retry {retry + 1}/{max_retries}: {err_str}")
+                    if retry < max_retries - 1:
+                        wait_time = 1.5 + retry * 1.0  # Longer delays: 1.5s, 2.5s
+                        print(f"{Fore.YELLOW}⚠️  Windows file access error, retrying in {wait_time}s (attempt {retry + 2}/{max_retries})...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"{Fore.RED}❌ File access error persists after {max_retries} attempts: {err_str}")
+                        logger.error(f"File access error persists after {max_retries} attempts: {err_str}")
+                        return False
+                
+                # SSL fallback only if not already using insecure mode
+                if self._is_ssl_error(err_str) and not self.insecure_ssl:
+                    print(f"{Fore.YELLOW}⚠️  SSL certificate verification failed during download. Retrying with 'nocheckcertificate'=True.")
+                    try:
+                        ssl_opts = {**opts, 'nocheckcertificate': True}
+                        ssl_opts = self._inject_ffmpeg_location(ssl_opts)
+                        with yt_dlp.YoutubeDL(ssl_opts) as ydl:
+                            ydl.download([url])
+                        
+                        # Add delay on Windows
+                        if platform.system() == 'Windows':
+                            time.sleep(1.0)
+                        
+                        print(f"{Fore.GREEN}✅ Download succeeded using nocheckcertificate fallback")
+                        return True
+                    except Exception as ssl_e:
+                        ssl_err_str = str(ssl_e)
+                        # Check for Windows file errors in SSL fallback too
+                        if ('WinError 5' in ssl_err_str or 'Access is denied' in ssl_err_str) and retry < max_retries - 1:
+                            wait_time = 1.5 + retry * 1.0
+                            print(f"{Fore.YELLOW}⚠️  Windows file access error in SSL fallback, retrying in {wait_time}s...")
+                            time.sleep(wait_time)
+                            continue
+                        print(f"{Fore.RED}❌ SSL-fallback download failed: {ssl_e}")
+                        return False
+                else:
+                    print(f"{Fore.RED}❌ Download failed: {e}")
                     return False
-            else:
-                print(f"{Fore.RED}❌ Download failed: {e}")
-                return False
+        
+        return False
     
     def _select_formats(self, video_info: Dict, quality: str) -> Tuple[Optional[str], Optional[str]]:
         """Smart format selection for separate streams with better validation."""
@@ -1170,12 +1446,24 @@ class YouTubeDownloader:
                 f.get('height') and f.get('format_id') and 
                 f.get('url')):  # Ensure format has actual URL
                 
-                # Check format reliability - prefer https over m3u8
+                # Check format reliability
+                # For Dzen.ru: prefer HLS over DASH (DASH often gives 400 errors)
                 protocol = f.get('protocol', '')
+                format_id = f.get('format_id', '')
                 format_note = f.get('format_note', '')
-                is_reliable = 'https' in protocol and 'm3u8' not in protocol and 'Untested' not in format_note
                 
-                f['_reliability_score'] = 1 if is_reliable else 0
+                if is_dzen:
+                    # Dzen.ru specific: HLS is more reliable than DASH
+                    is_hls = 'hls' in format_id.lower() or 'm3u8' in protocol
+                    is_dash = 'dash' in format_id.lower() and not is_hls
+                    is_reliable = is_hls and 'Untested' not in format_note
+                    # Give HLS higher score than DASH for Dzen
+                    f['_reliability_score'] = 2 if is_hls else (0 if is_dash else 1)
+                else:
+                    # For other platforms: prefer https over m3u8
+                    is_reliable = 'https' in protocol and 'm3u8' not in protocol and 'Untested' not in format_note
+                    f['_reliability_score'] = 1 if is_reliable else 0
+                
                 video_formats.append(f)
         
         # Find audio-only formats with better filtering and reliability scoring
@@ -1187,10 +1475,18 @@ class YouTubeDownloader:
                 
                 # Check format reliability
                 protocol = f.get('protocol', '')
+                format_id = f.get('format_id', '')
                 format_note = f.get('format_note', '')
-                is_reliable = 'https' in protocol and 'm3u8' not in protocol and 'Untested' not in format_note
                 
-                f['_reliability_score'] = 1 if is_reliable else 0
+                if is_dzen:
+                    # Dzen.ru specific: HLS is more reliable than DASH
+                    is_hls = 'hls' in format_id.lower() or 'm3u8' in protocol
+                    is_dash = 'dash' in format_id.lower() and not is_hls
+                    is_reliable = is_hls and 'Untested' not in format_note
+                    f['_reliability_score'] = 2 if is_hls else (0 if is_dash else 1)
+                else:
+                    is_reliable = 'https' in protocol and 'm3u8' not in protocol and 'Untested' not in format_note
+                    f['_reliability_score'] = 1 if is_reliable else 0
                 
                 # Filter by audio language if specified
                 if selected_audio_lang:
@@ -1279,6 +1575,9 @@ class YouTubeDownloader:
                 if self.progress_hook_callback:
                     opts['progress_hooks'] = [self._progress_hook]
                 
+                # Add postprocessor hook for Windows file handling
+                opts['postprocessor_hooks'] = [self._postprocessor_hook]
+                
                 opts = self._add_cookies_option(opts)
                 if not self._ydl_download_with_ssl_fallback(opts, url):
                     raise Exception('Video stream download failed')
@@ -1322,6 +1621,9 @@ class YouTubeDownloader:
                 if self.progress_hook_callback:
                     opts['progress_hooks'] = [self._progress_hook]
                 
+                # Add postprocessor hook for Windows file handling
+                opts['postprocessor_hooks'] = [self._postprocessor_hook]
+                
                 opts = self._add_cookies_option(opts)
                 if not self._ydl_download_with_ssl_fallback(opts, url):
                     raise Exception('Audio stream download failed')
@@ -1345,11 +1647,22 @@ class YouTubeDownloader:
                 else:
                     print(f"{Fore.RED}❌ Audio stream failed: {e}")
         
-        # Parallel execution
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        # Parallel execution with proper error handling
+        with ThreadPoolExecutor(max_workers=2) as executor:
             video_future = executor.submit(download_video)
             audio_future = executor.submit(download_audio)
-            concurrent.futures.wait([video_future, audio_future])
+            wait([video_future, audio_future])
+            
+            # Check for exceptions in futures
+            try:
+                video_future.result()
+            except Exception as ve:
+                print(f"{Fore.RED}❌ Video download exception: {ve}")
+            
+            try:
+                audio_future.result()
+            except Exception as ae:
+                print(f"{Fore.RED}❌ Audio download exception: {ae}")
         
         return video_file, audio_file
     
@@ -1534,6 +1847,13 @@ class YouTubeDownloader:
                 print(f"{Fore.YELLOW}   Combined formats typically available: 144p, 240p, 360p, 480p")
                 print(f"{Fore.YELLOW}   Install FFmpeg for high-quality separate stream downloads")
             fallbacks = {
+                'best': [
+                    'best[vcodec!*=none][acodec!*=none]',
+                    'best[height>=1080][vcodec!*=none][acodec!*=none]',
+                    'best[height>=720][vcodec!*=none][acodec!*=none]',
+                    'best[height>=480][vcodec!*=none][acodec!*=none]',
+                    'best[ext=mp4]', 'best'
+                ],
                 '4k': [
                     'best[height>=2160][vcodec!*=none][acodec!*=none]',
                     'best[height>=1440][vcodec!*=none][acodec!*=none]',

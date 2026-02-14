@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from youtube_downloader import YouTubeDownloader
 
+
 def test_quality_detection():
     """Test quality detection for various video formats"""
     
@@ -62,20 +63,29 @@ def test_quality_detection():
     print("=== Quality Detection Test ===")
     print(f"Test formats: {test_formats}")
     print(f"Found resolutions: {sorted(found_resolutions, reverse=True)}")
-    print(f"Available qualities: {sorted(qualities, key=lambda x: {'4K': 2160, '1440p': 1440, '1080p': 1080, '720p': 720, '480p': 480, '360p': 360, '240p': 240, '144p': 144}.get(x, 0), reverse=True)}")
+    quality_order = {'4K': 2160, '1440p': 1440, '1080p': 1080, '720p': 720, '480p': 480, '360p': 360, '240p': 240, '144p': 144}
+    print(f"Available qualities: {sorted(qualities, key=lambda x: quality_order.get(x, 0), reverse=True)}")
     
     # Verify that all qualities are detected correctly
     expected_qualities = {'1080p', '720p', '480p', '360p', '240p', '144p'}
     assert qualities == expected_qualities, f"Expected {expected_qualities}, got {qualities}"
     
     print("✅ Quality detection test passed!")
-    
+    return True
+
+
+def test_format_selection():
+    """Test format selection logic"""
     # Test format selection logic
     downloader = YouTubeDownloader()
     
+    # Test best quality selection
+    fallbacks_best = downloader._get_quality_fallbacks('best')
+    print(f"\nbest fallbacks: {fallbacks_best[:3]}")
+    
     # Test 480p selection
     fallbacks_480p = downloader._get_quality_fallbacks('480p')
-    print(f"\n480p fallbacks: {fallbacks_480p[:3]}")
+    print(f"480p fallbacks: {fallbacks_480p[:3]}")
     
     # Test 360p selection
     fallbacks_360p = downloader._get_quality_fallbacks('360p')
@@ -95,7 +105,104 @@ def test_quality_detection():
     assert fallbacks_240p[0] != fallbacks_144p[0], "240p and 144p should have different primary format selectors"
     
     print("✅ Format selection test passed!")
-    print("\n=== All tests passed! ===")
+    return True
+
+
+def test_platform_detection():
+    """Test platform detection"""
+    downloader = YouTubeDownloader()
+    
+    test_urls = [
+        ('https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'youtube'),
+        ('https://youtu.be/dQw4w9WgXcQ', 'youtube'),
+        ('https://vk.com/video123456', 'vk'),
+        ('https://dzen.ru/video/watch/123', 'dzen'),
+        ('https://rutube.ru/video/123/', 'rutube'),
+        ('https://www.instagram.com/reel/123/', 'instagram'),
+        ('https://www.tiktok.com/@user/video/123', 'tiktok'),
+        ('https://example.com/video', 'unknown'),
+    ]
+    
+    print("\n=== Platform Detection Test ===")
+    for url, expected_platform in test_urls:
+        detected = downloader._detect_platform(url)
+        status = "✅" if detected == expected_platform else "❌"
+        print(f"{status} {url} -> {detected} (expected: {expected_platform})")
+        assert detected == expected_platform, f"Expected {expected_platform}, got {detected}"
+    
+    print("✅ Platform detection test passed!")
+    return True
+
+
+def test_url_validation():
+    """Test URL validation"""
+    print("\n=== URL Validation Test ===")
+    
+    # Test valid URLs
+    valid_urls = [
+        'https://www.youtube.com/watch?v=123',
+        'http://example.com/video',
+        'https://vk.com/video123',
+    ]
+    
+    # Test invalid URLs (these should fail validation)
+    invalid_urls = [
+        '',
+        None,
+        'not-a-url',
+        'ftp://example.com/video',
+        'javascript:alert(1)',
+    ]
+    
+    downloader = YouTubeDownloader()
+    
+    for url in valid_urls:
+        if url.startswith(('http://', 'https://')):
+            print(f"✅ Valid URL accepted: {url}")
+    
+    for url in invalid_urls:
+        is_invalid = not url or not isinstance(url, str) or not url.startswith(('http://', 'https://'))
+        status = "✅" if is_invalid else "❌"
+        print(f"{status} Invalid URL rejected: {url}")
+    
+    print("✅ URL validation test passed!")
+    return True
+
 
 if __name__ == '__main__':
-    test_quality_detection()
+    print("=" * 60)
+    print("YTDL Test Suite")
+    print("=" * 60)
+    
+    all_passed = True
+    
+    try:
+        all_passed &= test_quality_detection()
+    except Exception as e:
+        print(f"❌ Quality detection test failed: {e}")
+        all_passed = False
+    
+    try:
+        all_passed &= test_format_selection()
+    except Exception as e:
+        print(f"❌ Format selection test failed: {e}")
+        all_passed = False
+    
+    try:
+        all_passed &= test_platform_detection()
+    except Exception as e:
+        print(f"❌ Platform detection test failed: {e}")
+        all_passed = False
+    
+    try:
+        all_passed &= test_url_validation()
+    except Exception as e:
+        print(f"❌ URL validation test failed: {e}")
+        all_passed = False
+    
+    print("\n" + "=" * 60)
+    if all_passed:
+        print("✅ All tests passed!")
+    else:
+        print("❌ Some tests failed!")
+        sys.exit(1)

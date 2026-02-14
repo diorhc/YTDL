@@ -1,45 +1,70 @@
-# Python cache
+# Root .gitignore - common ignores for this workspace
+
+# Node / JS
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Vite / build outputs
+/dist/
+/build/
+.vite/
+.cache/
+out/
+
+# Tauri / Rust
+src-tauri/target/
+target/
+**/target/
+src-tauri/tauri-debug.log
+v3/src-tauri/gen/android/app/src/main/jniLibs/
+
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-
-# Virtual environments
+*.pyo
+*.pyd
+*.pyc
+*.egg-info/
+dist/
+build/
 venv/
+.venv/
 env/
 ENV/
-.venv
+pip-wheel-metadata/
+python_embedded/bin/
+python_embedded/downloads/
 
-# Project specific
-downloads/
-python_embedded/
-INSTALL.txt
-.termux/
-.secret_key
+# Project-specific large/download folders
+**/downloads/
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# Environment / secret files
+.env
+.env.*.local
+.env.local
 
-# Logs
+# Logs & temp
 *.log
-logs/
-
-# OS specific
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Temporary files
 *.tmp
 *.temp
-*.orig
-*.bak
-docs
-.pytest_cache/
-# Environment variables
-.env
-.env.local
+*.swp
+npm-debug.log*
+
+# Coverage
+coverage/
+.nyc_output/
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Misc
+storybook-static/

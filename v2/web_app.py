@@ -27,10 +27,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
     import config
+    # Validate configuration on startup
+    if not config.validate_config():
+        print("Warning: Configuration validation failed. Using defaults.")
 except ImportError:
     # Fallback if config.py is not available
     class config:
         DEBUG_MODE = False
+        VIDEO_INFO_CACHE_TTL = 300
+        MAX_RETRIES = 3
 
 # Configure logging based on DEBUG_MODE
 logging.basicConfig(
@@ -46,11 +51,60 @@ if not config.DEBUG_MODE:
 
 from flask import Flask, render_template, request, jsonify, send_file, make_response, Response
 import time
+from collections import defaultdict
+from functools import wraps
 
 from youtube_downloader import YouTubeDownloader
 
 # Initialize Flask app with optimized configuration
 app = Flask(__name__)
+
+# Rate limiting implementation
+_rate_limit_data: Dict[str, list] = defaultdict(list)
+_rate_limit_lock = threading.Lock()
+
+
+def get_client_ip() -> str:
+    """Get client IP address, considering proxy headers."""
+    # Check for X-Forwarded-For header (common in proxy setups)
+    if request.headers.get('X-Forwarded-For'):
+        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+    # Check for X-Real-IP header
+    if request.headers.get('X-Real-IP'):
+        return request.headers.get('X-Real-IP')
+    return request.remote_addr or '127.0.0.1'
+
+
+def rate_limit(max_requests: int = 10, window_seconds: int = 60):
+    """Rate limiting decorator for API endpoints."""
+    def decorator(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            client_ip = get_client_ip()
+            current_time = time.time()
+            
+            with _rate_limit_lock:
+                # Clean old entries
+                _rate_limit_data[client_ip] = [
+                    t for t in _rate_limit_data[client_ip]
+                    if current_time - t < window_seconds
+                ]
+                
+                # Check rate limit
+                if len(_rate_limit_data[client_ip]) >= max_requests:
+                    logger.warning(f"Rate limit exceeded for {client_ip}")
+                    return jsonify({
+                        'error': 'Rate limit exceeded. Please wait before making more requests.',
+                        'retry_after': window_seconds
+                    }), 429
+                
+                # Record this request
+                _rate_limit_data[client_ip].append(current_time)
+            
+            return f(*args, **kwargs)
+        return wrapped
+    return decorator
+
 
 # SSE: Stream download progress updates
 @app.route('/api/progress_sse/<download_id>')
@@ -95,9 +149,12 @@ def progress_sse(download_id: str):
                 break
             time.sleep(1)
     return Response(event_stream(), mimetype='text/event-stream')
+
 # Generate or load secret key securely
 def get_secret_key():
     """Get secret key from environment or generate a persistent one."""
+    import secrets as secrets_module
+    
     secret_key = os.environ.get('FLASK_SECRET_KEY')
     if secret_key:
         return secret_key.encode() if isinstance(secret_key, str) else secret_key
@@ -105,13 +162,30 @@ def get_secret_key():
     # Generate a persistent key file for development
     key_file = Path('.secret_key')
     if key_file.exists():
-        return key_file.read_bytes()
-    else:
-        # Generate new key and save it
-        new_key = os.urandom(32)
+        try:
+            key_data = key_file.read_bytes()
+            # Validate key length
+            if len(key_data) >= 32:
+                return key_data
+            # Key too short, regenerate
+            logger.warning("Secret key file too short, regenerating")
+        except Exception as e:
+            logger.warning(f"Could not read secret key file: {e}")
+    
+    # Generate new cryptographically secure key and save it
+    try:
+        new_key = secrets_module.token_bytes(32)
         key_file.write_bytes(new_key)
-        key_file.chmod(0o600)  # Restrict permissions
+        # Restrict permissions (works on Unix, ignored on Windows)
+        try:
+            key_file.chmod(0o600)
+        except OSError:
+            pass  # Windows doesn't support chmod the same way
         return new_key
+    except Exception as e:
+        logger.warning(f"Could not write secret key file: {e}")
+        # Fall back to in-memory key
+        return secrets_module.token_bytes(32)
 
 app.config.update(
     SECRET_KEY=get_secret_key(),
@@ -257,7 +331,29 @@ def validate_safe_path(requested_path: str, base_dir: Path) -> Optional[Path]:
     Validate that requested_path is safely within base_dir.
     Returns resolved Path if safe, None otherwise.
     Prevents path traversal attacks.
+    
+    Args:
+        requested_path: Requested file path (relative or filename)
+        base_dir: Base directory that must contain the file
+        
+    Returns:
+        Resolved Path if safe, None otherwise
     """
+    if not requested_path or not isinstance(requested_path, str):
+        logger.warning("Invalid path: empty or not a string")
+        return None
+    
+    # Check for suspicious characters
+    suspicious_chars = ['\x00', '\r', '\n', '\t']
+    if any(char in requested_path for char in suspicious_chars):
+        logger.warning(f"Suspicious characters in path: {repr(requested_path)}")
+        return None
+    
+    # Check for directory traversal attempts
+    if '..' in requested_path or requested_path.startswith(('/','\\','~')):
+        logger.warning(f"Directory traversal attempt detected: {requested_path}")
+        return None
+    
     try:
         # Resolve both paths to absolute paths
         base_resolved = base_dir.resolve()
@@ -266,15 +362,36 @@ def validate_safe_path(requested_path: str, base_dir: Path) -> Optional[Path]:
         # Check if requested path is within base directory
         requested_resolved.relative_to(base_resolved)
         
+        # Additional check: ensure it's a file, not a directory
+        if requested_resolved.exists() and requested_resolved.is_dir():
+            logger.warning(f"Attempted to access directory as file: {requested_resolved}")
+            return None
+        
         return requested_resolved
-    except (ValueError, Exception):
+    except (ValueError, Exception) as e:
+        logger.warning(f"Path validation failed for {requested_path}: {e}")
         return None
 
 def validate_url(url: str) -> bool:
     """
     Validate URL to prevent SSRF attacks.
     Only allow http:// and https:// schemes and block private IP ranges.
+    
+    Args:
+        url: URL string to validate
+        
+    Returns:
+        True if URL is safe, False otherwise
     """
+    if not url or not isinstance(url, str):
+        return False
+    
+    url = url.strip()
+    
+    # Basic length check
+    if len(url) > 4096:
+        return False
+    
     try:
         from urllib.parse import urlparse
         import ipaddress
@@ -293,32 +410,90 @@ def validate_url(url: str) -> bool:
         hostname = parsed.hostname.lower()
         
         # Block localhost variations
-        localhost_patterns = ['localhost', '127.', '0.0.0.0', '::1', '0:0:0:0:0:0:0:1']
+        localhost_patterns = ['localhost', '127.', '0.0.0.0', '::1', '0:0:0:0:0:0:0:1', '[::1]']
         if any(hostname.startswith(pattern) for pattern in localhost_patterns):
+            logger.warning(f"Blocked localhost access attempt: {hostname}")
             return False
         
         # Try to resolve as IP address and check if it's private
         try:
             ip = ipaddress.ip_address(hostname)
             if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+                logger.warning(f"Blocked private IP access attempt: {ip}")
                 return False
         except ValueError:
             # Not an IP address, check domain patterns
             pass
         
         # Block internal domains
-        internal_domains = ['.local', '.internal', '.corp', '.lan', '.localdomain']
+        internal_domains = ['.local', '.internal', '.corp', '.lan', '.localdomain', '.test']
         if any(hostname.endswith(domain) for domain in internal_domains):
+            logger.warning(f"Blocked internal domain access attempt: {hostname}")
             return False
         
         # Block common internal IP ranges and hostnames
-        blocked_hosts = ['metadata.google.internal', 'kubernetes.default']
+        blocked_hosts = ['metadata.google.internal', 'kubernetes.default', 'consul.service']
         if hostname in blocked_hosts:
+            logger.warning(f"Blocked known internal hostname: {hostname}")
+            return False
+        
+        # Additional check: disallow URLs with credentials
+        if parsed.username or parsed.password:
+            logger.warning(f"Blocked URL with embedded credentials")
             return False
         
         return True
-    except Exception:
+    except Exception as e:
+        logger.error(f"URL validation error: {e}")
         return False
+
+
+def sanitize_output_name(name: str) -> str:
+    """Sanitize a user-provided output filename.
+
+    - Removes path separators and control characters
+    - Replaces Windows-reserved characters with underscore
+    - Trims trailing dots/spaces and limits length to 255
+    - Ensures the result is non-empty
+    """
+    try:
+        import re
+        import os
+
+        if not name or not isinstance(name, str):
+            return ''
+
+        # Remove null bytes and control characters
+        name = ''.join(ch for ch in name if ord(ch) >= 32 and ch != '\x00')
+
+        # Replace path separators and traversal attempts
+        name = name.replace('/', '_').replace('\\', '_')
+        name = name.replace('..', '_')
+
+        # Replace reserved characters
+        name = re.sub(r'[<>:\"|\?\*]', '_', name)
+
+        # Strip surrounding whitespace and dots (Windows doesn't allow trailing dots/spaces)
+        name = name.strip().strip('.')
+
+        # Enforce max length
+        if len(name) > 255:
+            name = name[:255]
+
+        # Avoid reserved Windows device names
+        reserved = {"CON","PRN","AUX","NUL"} | {f"COM{i}" for i in range(1,10)} | {f"LPT{i}" for i in range(1,10)}
+        base = os.path.splitext(name)[0]
+        if base.upper() in reserved:
+            # Append underscore to avoid reserved name
+            ext = os.path.splitext(name)[1]
+            name = base + '_' + ext
+
+        if not name:
+            return 'download'
+
+        return name
+    except Exception:
+        return 'download'
 
 
 @app.route('/api/thumbnail', methods=['GET'])
@@ -437,6 +612,7 @@ def proxy_thumbnail():
     except (HTTPError, URLError) as e:
         # If SSL verify failed and caller didn't request insecure_ssl, tell them
         # (and we also retry internally once; this is for the remaining failure).
+        err_str = str(e)
         if 'CERTIFICATE_VERIFY_FAILED' in err_str or 'certificate verify failed' in err_str.lower():
             logger.warning(f"SSL verification failed for thumbnail: {raw_url} - {e}")
             return jsonify({
@@ -468,9 +644,9 @@ def index():
     return render_template('index.html')
 
 @app.route('/api/video_info', methods=['POST'])
+@rate_limit(max_requests=15, window_seconds=60)
 def get_video_info():
     """Get video information efficiently with timeout handling."""
-    import threading
 
     def timeout_handler(signum, frame):
         raise TimeoutError("Video info request timed out")
@@ -685,6 +861,7 @@ def get_video_info():
         return resp
 
 @app.route('/api/download', methods=['POST'])
+@rate_limit(max_requests=5, window_seconds=60)
 def start_download():
     """Start video download with optimized error handling."""
     try:
@@ -710,19 +887,19 @@ def start_download():
         audio_only = data.get('audio_only', False)
         audio_language = data.get('audio_language')
         output_name = (data.get('output_name') or '').strip() or None
-        
-        # Validate output_name to prevent path traversal
+
+        # Sanitize output_name instead of rejecting it to improve UX.
+        # We still prevent path traversal and reserved names but accept and sanitize common filenames.
+        output_name_notice = None
         if output_name:
-            # Remove path separators and check for suspicious patterns
-            if any(char in output_name for char in ['/', '\\', '..', ':', '*', '?', '"', '<', '>', '|']):
+            sanitized = sanitize_output_name(output_name)
+            if not sanitized:
                 resp = make_response(json.dumps({'error': 'Invalid output filename'}), 400)
                 resp.headers['Content-Type'] = 'application/json; charset=utf-8'
                 return resp
-            # Limit filename length
-            if len(output_name) > 255:
-                resp = make_response(json.dumps({'error': 'Output filename too long (max 255 characters)'}), 400)
-                resp.headers['Content-Type'] = 'application/json; charset=utf-8'
-                return resp
+            if sanitized != output_name:
+                output_name_notice = f"Requested filename sanitized to '{sanitized}'"
+                output_name = sanitized
         
         insecure_ssl = bool(data.get('insecure_ssl'))
         trim_start = data.get('trim_start')
@@ -755,6 +932,10 @@ def start_download():
                     if insecure_ssl:
                         warning = 'SSL verification disabled for this download.'
                         notices = f"{notices} {warning}".strip() if notices else warning
+
+                    # If we sanitized the output filename, show a notice to the user
+                    if output_name_notice:
+                        notices = f"{notices} {output_name_notice}".strip() if notices else output_name_notice
 
                     if not downloader.merger.ffmpeg_available and quality.lower() not in ['360p', 'best']:
                         extra_notice = (
@@ -904,10 +1085,20 @@ def download_file(download_id: str):
             filename = os.path.basename(file_path)
             if isinstance(filename, bytes):
                 filename = filename.decode('utf-8', errors='ignore')
+            
+            # Sanitize filename to ASCII for HTTP headers (prevents UnicodeEncodeError)
+            safe_filename = filename.encode('ascii', 'ignore').decode('ascii')
+            if not safe_filename:
+                safe_filename = 'download.mp4'
+            
             try:
-                response = send_file(file_path, as_attachment=True, download_name=filename)
+                response = send_file(file_path, as_attachment=True, download_name=safe_filename)
             except TypeError:
-                response = send_file(file_path, as_attachment=True, attachment_filename=filename)
+                response = send_file(file_path, as_attachment=True, attachment_filename=safe_filename)
+            
+            # Add UTF-8 filename in RFC 2231 format for modern browsers
+            from urllib.parse import quote
+            response.headers['Content-Disposition'] = f"attachment; filename={safe_filename}; filename*=UTF-8''{quote(filename)}"
 
         notice = file_info.get('download_notice') if file_info else None
         if notice:
@@ -993,12 +1184,21 @@ def download_by_filename(filename: str):
             if isinstance(filename_to_send, bytes):
                 filename_to_send = filename_to_send.decode('utf-8', errors='ignore')
             
+            # Sanitize filename to ASCII for HTTP headers (prevents UnicodeEncodeError)
+            safe_filename = filename_to_send.encode('ascii', 'ignore').decode('ascii')
+            if not safe_filename:
+                safe_filename = 'download.mp4'
+            
             try:
                 # Try newer Flask version parameter first
-                response = send_file(str(file_path), as_attachment=True, download_name=filename_to_send)
+                response = send_file(str(file_path), as_attachment=True, download_name=safe_filename)
             except TypeError:
                 # Fallback to older Flask version parameter
-                response = send_file(str(file_path), as_attachment=True, attachment_filename=filename_to_send)
+                response = send_file(str(file_path), as_attachment=True, attachment_filename=safe_filename)
+            
+            # Add UTF-8 filename in RFC 2231 format for modern browsers
+            from urllib.parse import quote
+            response.headers['Content-Disposition'] = f"attachment; filename={safe_filename}; filename*=UTF-8''{quote(filename_to_send)}"
             
             # Add security headers
             response.headers['X-Content-Type-Options'] = 'nosniff'
