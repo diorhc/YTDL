@@ -162,47 +162,22 @@ impl DownloadManager {
 /// Resolves the yt-dlp binary path.
 /// In development, fallback to PATH. In production, use sidecar.
 pub fn get_ytdlp_path(app_handle: &tauri::AppHandle) -> String {
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    {
-        // On Android, we bundle the binary as a shared library (libytdlp.so)
-        // This is extracted to the app's native library directory
-        let app_info = app_handle.path().app_data_dir().unwrap();
-        // The path is usually /data/data/<package>/lib/libytdlp.so
-        // But we can construct it relative to the app data dir or just assume the standard location
-        // For simplicity and robustness on standard Android, we use the standard native lib path
-        // associated with the package name.
-        // A more robust way via Tauri API might be needed if this changes, but for now:
-        return format!("{}/lib/libytdlp.so", app_info.parent().unwrap().to_string_lossy());
+    let bin_name: &str = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" };
+    let sidecar: PathBuf = get_binary_dir(app_handle).join(bin_name);
+    if sidecar.exists() {
+        return sidecar.to_string_lossy().to_string();
     }
-
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        let bin_name: &str = if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" };
-        let sidecar: PathBuf = get_binary_dir(app_handle).join(bin_name);
-        if sidecar.exists() {
-            return sidecar.to_string_lossy().to_string();
-        }
-        if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" }.to_string()
-    }
+    if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" }.to_string()
 }
 
 /// Resolves the ffmpeg binary path.
 pub fn get_ffmpeg_path(app_handle: &tauri::AppHandle) -> String {
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    {
-        let app_info = app_handle.path().app_data_dir().unwrap();
-        return format!("{}/lib/libffmpeg.so", app_info.parent().unwrap().to_string_lossy());
+    let bin_name: &str = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+    let sidecar: PathBuf = get_binary_dir(app_handle).join(bin_name);
+    if sidecar.exists() {
+        return sidecar.to_string_lossy().to_string();
     }
-
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        let bin_name: &str = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
-        let sidecar: PathBuf = get_binary_dir(app_handle).join(bin_name);
-        if sidecar.exists() {
-            return sidecar.to_string_lossy().to_string();
-        }
-        if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" }.to_string()
-    }
+    if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" }.to_string()
 }
 
 /// Fetch video metadata via yt-dlp --dump-json

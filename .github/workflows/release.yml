@@ -129,48 +129,8 @@ jobs:
             v3/src-tauri/gen/android/app/build/outputs/**
           if-no-files-found: warn
 
-  ios:
-    name: iOS (simulator)
-    runs-on: macos-latest
-    defaults:
-      run:
-        working-directory: v3
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: v3/package-lock.json
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Add iOS Rust targets
-        working-directory: .
-        run: |
-          rustup target add \
-            aarch64-apple-ios \
-            aarch64-apple-ios-sim \
-            x86_64-apple-ios
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Build iOS simulator release
-        run: npm run tauri:ios:build -- --simulator
-
-      - name: Upload iOS artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-simulator
-          path: |
-            v3/src-tauri/gen/apple/build/**
-          if-no-files-found: warn
 
   release:
     name: Create Release
