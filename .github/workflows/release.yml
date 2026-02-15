@@ -6,10 +6,16 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   desktop:
     name: Desktop (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: v3
     strategy:
       fail-fast: false
       matrix:
@@ -30,12 +36,14 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: v3/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-22.04'
+        working-directory: .
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -55,12 +63,15 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.name }}
-          path: src-tauri/target/release/bundle/**
+          path: v3/src-tauri/target/release/bundle/**
           if-no-files-found: warn
 
   android:
     name: Android
     runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: v3
 
     steps:
       - name: Checkout
@@ -71,11 +82,13 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: v3/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Add Android Rust targets
+        working-directory: .
         run: |
           rustup target add \
             aarch64-linux-android \
@@ -93,6 +106,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
+        working-directory: .
         run: |
           yes | sdkmanager --licenses
           sdkmanager \
@@ -112,13 +126,15 @@ jobs:
         with:
           name: android
           path: |
-            src-tauri/gen/android/app/build/outputs/**
-            src-tauri/target/**/release/bundle/**
+            v3/src-tauri/gen/android/app/build/outputs/**
           if-no-files-found: warn
 
   ios:
-    name: iOS (simulator release)
+    name: iOS (simulator)
     runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: v3
 
     steps:
       - name: Checkout
@@ -129,11 +145,13 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: v3/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Add iOS Rust targets
+        working-directory: .
         run: |
           rustup target add \
             aarch64-apple-ios \
@@ -151,6 +169,53 @@ jobs:
         with:
           name: ios-simulator
           path: |
-            src-tauri/gen/apple/build/**
-            src-tauri/target/**/release/**
+            v3/src-tauri/gen/apple/build/**
           if-no-files-found: warn
+
+  release:
+    name: Create Release
+    needs: [desktop, android]
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts/
+
+      - name: Collect release assets
+        id: collect
+        run: |
+          mkdir -p release-assets
+
+          # Windows installers
+          find artifacts/desktop-windows -type f \( -name "*.msi" -o -name "*.exe" \) \
+            -exec cp {} release-assets/ \; 2>/dev/null || true
+
+          # Linux packages
+          find artifacts/desktop-linux -type f \( -name "*.deb" -o -name "*.AppImage" -o -name "*.rpm" \) \
+            -exec cp {} release-assets/ \; 2>/dev/null || true
+
+          # macOS packages
+          find artifacts/desktop-macos -type f \( -name "*.dmg" -o -name "*.app.tar.gz" \) \
+            -exec cp {} release-assets/ \; 2>/dev/null || true
+
+          # Android APK/AAB
+          find artifacts/android -type f \( -name "*.apk" -o -name "*.aab" \) \
+            -exec cp {} release-assets/ \; 2>/dev/null || true
+
+          echo "Collected release assets:"
+          ls -la release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -44,7 +44,10 @@
       "nsis": {
         "installMode": "both",
         "displayLanguageSelector": true,
-        "languages": ["English", "Russian"]
+        "languages": [
+          "English",
+          "Russian"
+        ]
       }
     },
     "macOS": {
@@ -62,12 +65,6 @@
   "plugins": {
     "shell": {
       "open": ".*"
-    },
-    "updater": {
-      "endpoints": [
-        "https://github.com/diorhc/ytdl/releases/latest/download/latest.json"
-      ],
-      "pubkey": ""
     }
   }
 }
