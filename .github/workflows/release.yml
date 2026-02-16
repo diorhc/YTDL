@@ -57,6 +57,8 @@ jobs:
         run: npm ci
 
       - name: Build desktop release
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: npm run tauri:build
 
       - name: Upload desktop bundles
@@ -129,9 +131,6 @@ jobs:
             v3/src-tauri/gen/android/app/build/outputs/**
           if-no-files-found: warn
 
-
-
-
   release:
     name: Create Release
     needs: [desktop, android]
@@ -162,6 +161,14 @@ jobs:
 
           # macOS packages
           find artifacts/desktop-macos -type f \( -name "*.dmg" -o -name "*.app.tar.gz" \) \
+            -exec cp {} release-assets/ \; 2>/dev/null || true
+
+          # Update manifest files (.json) for Tauri updater
+          find artifacts/desktop-windows -type f -name "*.json" \
+            -exec cp {} release-assets/ \; 2>/dev/null || true
+          find artifacts/desktop-linux -type f -name "*.json" \
+            -exec cp {} release-assets/ \; 2>/dev/null || true
+          find artifacts/desktop-macos -type f -name "*.json" \
             -exec cp {} release-assets/ \; 2>/dev/null || true
 
           # Android APK/AAB

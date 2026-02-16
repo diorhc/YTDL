@@ -44,10 +44,7 @@
       "nsis": {
         "installMode": "both",
         "displayLanguageSelector": true,
-        "languages": [
-          "English",
-          "Russian"
-        ]
+        "languages": ["English", "Russian"]
       }
     },
     "macOS": {
@@ -65,6 +62,12 @@
   "plugins": {
     "shell": {
       "open": ".*"
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ5RTlFN0MxNjNBODUwMjMKUldRalVLaGp3ZWZwMlVwR0piNFlScjF0MVRNbm9QZUltVjIrc0V2V3gxRUV3UlJjUGE0V0htbGYK",
+      "endpoints": [
+        "https://github.com/diorhc/YTDL/releases/latest/download/{{target}}-{{arch}}.json"
+      ]
     }
   }
 }

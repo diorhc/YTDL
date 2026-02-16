@@ -1,8 +1,0 @@
-﻿cargo :     Checking ytdl v3.0.0 (D:\user\Documents\test\download\v3\src-tauri)
-At line:1 char:1
-+ cargo check 2>&1 | Out-File -Encoding utf8 D:\user\Documents\test\dow ...
-+ ~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (    Checking yt...d\v3\src-tauri):String) [], RemoteException
-    + FullyQualifiedErrorId : NativeCommandError
- 
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.84s
