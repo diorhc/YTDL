@@ -90,30 +90,82 @@ fn default_download_dir(app: &AppHandle) -> String {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         // On mobile, use app_data_dir which is always writable
-        app.path()
-            .app_data_dir()
-            .map(|dir| dir.join("downloads").join("YTDL"))
-            .unwrap_or_else(|_| std::path::PathBuf::from("YTDL"))
-            .to_string_lossy()
-            .to_string()
+        match app.path().app_data_dir() {
+            Ok(dir) => {
+                let download_dir = dir.join("downloads").join("YTDL");
+                // Try to create the directory
+                if std::fs::create_dir_all(&download_dir).is_ok() {
+                    return download_dir.to_string_lossy().to_string();
+                }
+                // Fallback to app_data directly
+                log::warn!("Could not create downloads subdirectory, using app_data_dir directly");
+                dir.to_string_lossy().to_string()
+            }
+            Err(e) => {
+                log::error!("Failed to get app_data_dir: {}", e);
+                // Last resort: use current directory
+                std::path::PathBuf::from("YTDL")
+                    .to_string_lossy()
+                    .to_string()
+            }
+        }
     }
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         // On desktop, prefer XDG download directory, fallback to app_data_dir
-        dirs::download_dir()
+        let download_dir = dirs::download_dir()
             .map(|dir| dir.join("YTDL"))
             .or_else(|| app.path().app_data_dir().ok().map(|dir| dir.join("downloads").join("YTDL")))
-            .unwrap_or_else(|| std::path::PathBuf::from("YTDL"))
-            .to_string_lossy()
-            .to_string()
+            .unwrap_or_else(|| {
+                // Fallback to cache_dir or temp
+                app.path().cache_dir()
+                    .or_else(|_| app.path().temp_dir())
+                    .unwrap_or_else(|_| std::path::PathBuf::from("YTDL"))
+            });
+        
+        // Try to create the directory
+        if let Err(e) = std::fs::create_dir_all(&download_dir) {
+            log::warn!("Failed to create download directory '{}': {}", download_dir.display(), e);
+        }
+        
+        download_dir.to_string_lossy().to_string()
     }
 }
 
 fn ensure_tool_bin_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let bin_dir = download::get_binary_dir(app);
-    std::fs::create_dir_all(&bin_dir).map_err(|e| e.to_string())?;
-    Ok(bin_dir)
+    
+    // Try to create directory with detailed error info
+    match std::fs::create_dir_all(&bin_dir) {
+        Ok(()) => {
+            // Verify we can write to the directory
+            let test_file = bin_dir.join(".write_test");
+            match std::fs::write(&test_file, b"test") {
+                Ok(()) => {
+                    let _ = std::fs::remove_file(&test_file);
+                }
+                Err(e) => {
+                    return Err(format!(
+                        "Cannot write to binary directory '{}': {}. Please check directory permissions.",
+                        bin_dir.display(), e
+                    ));
+                }
+            }
+            Ok(bin_dir)
+        }
+        Err(e) => {
+            let error_msg = if e.kind() == std::io::ErrorKind::PermissionDenied {
+                format!(
+                    "Permission denied when creating binary directory '{}'. Please check app permissions or reinstall the application.",
+                    bin_dir.display()
+                )
+            } else {
+                format!("Failed to create binary directory '{}': {}", bin_dir.display(), e)
+            };
+            Err(error_msg)
+        }
+    }
 }
 
 async fn emit_rss_sync_progress(
@@ -1742,21 +1794,87 @@ pub async fn install_local_transcription(
 #[tauri::command]
 pub async fn check_ytdlp(app: AppHandle) -> Result<bool, String> {
     let ytdlp = download::get_ytdlp_path(&app);
+    
+    // Check if binary exists
+    if !std::path::Path::new(&ytdlp).exists() {
+        log::debug!("yt-dlp not found at: {}", ytdlp);
+        return Ok(false);
+    }
+    
     let result = download::create_hidden_command(&ytdlp)
         .arg("--version")
         .output()
         .await;
-    Ok(result.map(|o| o.status.success()).unwrap_or(false))
+    
+    match result {
+        Ok(output) => {
+            if output.status.success() {
+                log::debug!("yt-dlp found at: {}", ytdlp);
+                Ok(true)
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                log::warn!("yt-dlp exists but failed to run: {}", stderr.trim());
+                Ok(false)
+            }
+        }
+        Err(e) => {
+            // Check for permission denied error
+            if let Some(io_error) = e.raw_os_error() {
+                if io_error == 13 || io_error == 13i32 {
+                    log::error!("Permission denied when running yt-dlp at '{}'. Try: chmod +x {}", ytdlp, ytdlp);
+                    return Err(format!(
+                        "Permission denied. Please make sure the file is executable: chmod +x {}",
+                        ytdlp
+                    ));
+                }
+            }
+            log::error!("Failed to run yt-dlp at '{}': {}", ytdlp, e);
+            Ok(false)
+        }
+    }
 }
 
 #[tauri::command]
 pub async fn check_ffmpeg(app: AppHandle) -> Result<bool, String> {
     let ffmpeg = download::get_ffmpeg_path(&app);
+    
+    // Check if binary exists
+    if !std::path::Path::new(&ffmpeg).exists() {
+        log::debug!("ffmpeg not found at: {}", ffmpeg);
+        return Ok(false);
+    }
+    
     let result = download::create_hidden_command(&ffmpeg)
         .arg("-version")
         .output()
         .await;
-    Ok(result.map(|o| o.status.success()).unwrap_or(false))
+    
+    match result {
+        Ok(output) => {
+            if output.status.success() {
+                log::debug!("ffmpeg found at: {}", ffmpeg);
+                Ok(true)
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                log::warn!("ffmpeg exists but failed to run: {}", stderr.trim());
+                Ok(false)
+            }
+        }
+        Err(e) => {
+            // Check for permission denied error
+            if let Some(io_error) = e.raw_os_error() {
+                if io_error == 13 || io_error == 13i32 {
+                    log::error!("Permission denied when running ffmpeg at '{}'. Try: chmod +x {}", ffmpeg, ffmpeg);
+                    return Err(format!(
+                        "Permission denied. Please make sure the file is executable: chmod +x {}",
+                        ffmpeg
+                    ));
+                }
+            }
+            log::error!("Failed to run ffmpeg at '{}': {}", ffmpeg, e);
+            Ok(false)
+        }
+    }
 }
 
 /// Install yt-dlp binary from GitHub releases.
@@ -1786,18 +1904,33 @@ pub async fn install_ytdlp(app: AppHandle) -> Result<(), String> {
         "progress": 0
     }));
 
-    let response = reqwest::get(url).await.map_err(|e| format!("Download failed: {}", e))?;
-    let bytes = response.bytes().await.map_err(|e| format!("Read failed: {}", e))?;
+    let response = reqwest::get(url).await.map_err(|e| format!("Download failed: {}. Please check your internet connection.", e))?;
+    if !response.status().is_success() {
+        return Err(format!("Download failed with status: {}. Please try again later.", response.status()));
+    }
+    let bytes = response.bytes().await.map_err(|e| format!("Failed to read download: {}", e))?;
 
     let dest = bin_dir.join(filename);
-    std::fs::write(&dest, &bytes).map_err(|e| format!("Write failed: {}", e))?;
+    std::fs::write(&dest, &bytes).map_err(|e| format!("Failed to save {}: {}. Check if the directory is writable.", dest.display(), e))?;
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| format!("chmod failed: {}", e))?;
+            .map_err(|e| format!("Failed to set executable permissions: {}. Please run 'chmod +x {}' manually.", e, dest.display()))?;
+        
+        // Verify the file is executable
+        if let Ok(metadata) = std::fs::metadata(&dest) {
+            let permissions = metadata.permissions();
+            let mode = permissions.mode();
+            if mode & 0o111 == 0 {
+                log::warn!("File {} may not be executable after chmod", dest.display());
+            }
+        }
     }
+
+    #[cfg(windows)]
+    let _ = {};
 
     let _ = app.emit("install-progress", serde_json::json!({
         "tool": "yt-dlp",
@@ -1805,6 +1938,7 @@ pub async fn install_ytdlp(app: AppHandle) -> Result<(), String> {
         "progress": 100
     }));
 
+    log::info!("yt-dlp installed successfully to {}", dest.display());
     Ok(())
 }
 
@@ -1824,8 +1958,11 @@ pub async fn install_ffmpeg(app: AppHandle) -> Result<(), String> {
 
         // Download ffmpeg ZIP
         let url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
-        let response = reqwest::get(url).await.map_err(|e| format!("Download failed: {}", e))?;
-        let bytes = response.bytes().await.map_err(|e| format!("Read failed: {}", e))?;
+        let response = reqwest::get(url).await.map_err(|e| format!("Download failed: {}. Please check your internet connection.", e))?;
+        if !response.status().is_success() {
+            return Err(format!("Download failed with status: {}. Please try again later.", response.status()));
+        }
+        let bytes = response.bytes().await.map_err(|e| format!("Failed to read download: {}", e))?;
 
         let _ = app.emit("install-progress", serde_json::json!({
             "tool": "ffmpeg",
@@ -1835,33 +1972,33 @@ pub async fn install_ffmpeg(app: AppHandle) -> Result<(), String> {
 
         // Write to temp zip file
         let temp_zip = bin_dir.join("ffmpeg_temp.zip");
-        std::fs::write(&temp_zip, &bytes).map_err(|e| format!("Write ZIP failed: {}", e))?;
+        std::fs::write(&temp_zip, &bytes).map_err(|e| format!("Failed to save ZIP file: {}. Check directory permissions.", e))?;
 
         // Extract ffmpeg.exe from ZIP
-        let file = std::fs::File::open(&temp_zip).map_err(|e| format!("Open ZIP failed: {}", e))?;
-        let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Parse ZIP failed: {}", e))?;
+        let file = std::fs::File::open(&temp_zip).map_err(|e| format!("Failed to open ZIP file: {}", e))?;
+        let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Failed to parse ZIP: {}. The file may be corrupted.", e))?;
 
         let mut found = false;
         for i in 0..archive.len() {
-            let mut entry = archive.by_index(i).map_err(|e| format!("Read entry failed: {}", e))?;
+            let mut entry = archive.by_index(i).map_err(|e| format!("Failed to read ZIP entry: {}", e))?;
             let name = entry.name().to_lowercase();
             
             // Find ffmpeg.exe in the archive (it's in a subdirectory)
             if name.ends_with("bin/ffmpeg.exe") || name.ends_with("bin\\ffmpeg.exe") {
                 let dest = bin_dir.join("ffmpeg.exe");
-                let mut outfile = std::fs::File::create(&dest).map_err(|e| format!("Create failed: {}", e))?;
+                let mut outfile = std::fs::File::create(&dest).map_err(|e| format!("Failed to create ffmpeg.exe: {}. Check directory permissions.", e))?;
                 let mut buffer = Vec::new();
-                entry.read_to_end(&mut buffer).map_err(|e| format!("Read failed: {}", e))?;
-                outfile.write_all(&buffer).map_err(|e| format!("Write failed: {}", e))?;
+                entry.read_to_end(&mut buffer).map_err(|e| format!("Failed to read from ZIP: {}", e))?;
+                outfile.write_all(&buffer).map_err(|e| format!("Failed to write ffmpeg.exe: {}", e))?;
                 found = true;
             }
             // Also extract ffprobe.exe if present
             if name.ends_with("bin/ffprobe.exe") || name.ends_with("bin\\ffprobe.exe") {
                 let dest = bin_dir.join("ffprobe.exe");
-                let mut outfile = std::fs::File::create(&dest).map_err(|e| format!("Create failed: {}", e))?;
+                let mut outfile = std::fs::File::create(&dest).map_err(|e| format!("Failed to create ffprobe.exe: {}. Check directory permissions.", e))?;
                 let mut buffer = Vec::new();
-                entry.read_to_end(&mut buffer).map_err(|e| format!("Read failed: {}", e))?;
-                outfile.write_all(&buffer).map_err(|e| format!("Write failed: {}", e))?;
+                entry.read_to_end(&mut buffer).map_err(|e| format!("Failed to read from ZIP: {}", e))?;
+                outfile.write_all(&buffer).map_err(|e| format!("Failed to write ffprobe.exe: {}", e))?;
             }
         }
 
@@ -1869,7 +2006,7 @@ pub async fn install_ffmpeg(app: AppHandle) -> Result<(), String> {
         let _ = std::fs::remove_file(&temp_zip);
 
         if !found {
-            return Err("Could not find ffmpeg.exe in ZIP archive".to_string());
+            return Err("Could not find ffmpeg.exe in ZIP archive. The archive structure may have changed.".to_string());
         }
     } else {
         let (ffmpeg_url, ffprobe_url) = if cfg!(target_os = "macos") {
@@ -1927,11 +2064,11 @@ pub async fn install_ffmpeg(app: AppHandle) -> Result<(), String> {
 
         let ffmpeg_bytes = reqwest::get(ffmpeg_url)
             .await
-            .map_err(|e| format!("Download failed: {}", e))?
+            .map_err(|e| format!("Download failed: {}. Please check your internet connection.", e))?
             .bytes()
             .await
-            .map_err(|e| format!("Read failed: {}", e))?;
-        std::fs::write(&ffmpeg_dest, &ffmpeg_bytes).map_err(|e| format!("Write failed: {}", e))?;
+            .map_err(|e| format!("Failed to read download: {}", e))?;
+        std::fs::write(&ffmpeg_dest, &ffmpeg_bytes).map_err(|e| format!("Failed to save ffmpeg: {}. Check directory permissions.", e))?;
 
         let _ = app.emit("install-progress", serde_json::json!({
             "tool": "ffmpeg",
@@ -1941,19 +2078,19 @@ pub async fn install_ffmpeg(app: AppHandle) -> Result<(), String> {
 
         let ffprobe_bytes = reqwest::get(ffprobe_url)
             .await
-            .map_err(|e| format!("Download failed: {}", e))?
+            .map_err(|e| format!("Download failed: {}. Please check your internet connection.", e))?
             .bytes()
             .await
-            .map_err(|e| format!("Read failed: {}", e))?;
-        std::fs::write(&ffprobe_dest, &ffprobe_bytes).map_err(|e| format!("Write failed: {}", e))?;
+            .map_err(|e| format!("Failed to read download: {}", e))?;
+        std::fs::write(&ffprobe_dest, &ffprobe_bytes).map_err(|e| format!("Failed to save ffprobe: {}. Check directory permissions.", e))?;
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&ffmpeg_dest, std::fs::Permissions::from_mode(0o755))
-                .map_err(|e| format!("chmod failed: {}", e))?;
+                .map_err(|e| format!("Failed to set executable permissions for ffmpeg: {}. Please run 'chmod +x {}' manually.", e, ffmpeg_dest.display()))?;
             std::fs::set_permissions(&ffprobe_dest, std::fs::Permissions::from_mode(0o755))
-                .map_err(|e| format!("chmod failed: {}", e))?;
+                .map_err(|e| format!("Failed to set executable permissions for ffprobe: {}. Please run 'chmod +x {}' manually.", e, ffprobe_dest.display()))?;
         }
     }
 
@@ -1963,6 +2100,7 @@ pub async fn install_ffmpeg(app: AppHandle) -> Result<(), String> {
         "progress": 100
     }));
 
+    log::info!("ffmpeg installed successfully to {}", bin_dir.display());
     Ok(())
 }
 

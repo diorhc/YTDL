@@ -10,12 +10,25 @@ use crate::error::{AppError, AppResult};
 /// Uses app_data_dir on all platforms to ensure a user-writable location.
 /// On Linux desktop, resource_dir typically points to read-only installation directories
 /// (e.g., /usr/lib/ytdl/ or /opt/ytdl/), which causes OS Error 13 (Permission Denied).
+/// On Android, uses app_data_dir which is always writable.
 pub fn get_binary_dir(app_handle: &tauri::AppHandle) -> PathBuf {
-    let base_dir = app_handle.path().app_data_dir().ok();
+    // Try app_data_dir first (writable on all platforms including Android)
+    if let Ok(base_dir) = app_handle.path().app_data_dir() {
+        return base_dir.join("binaries");
+    }
 
-    base_dir
-        .map(|dir| dir.join("binaries"))
-        .unwrap_or_else(|| PathBuf::from("binaries"))
+    // Fallback: try cache_dir
+    if let Ok(base_dir) = app_handle.path().cache_dir() {
+        return base_dir.join("binaries");
+    }
+
+    // Last fallback: temp directory
+    if let Ok(base_dir) = app_handle.path().temp_dir() {
+        return base_dir.join("binaries");
+    }
+
+    // Absolute last resort - use current directory
+    PathBuf::from("binaries")
 }
 
 /// Create a Command that hides the console window on Windows

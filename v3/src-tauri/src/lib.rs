@@ -33,9 +33,20 @@ pub fn run() {
             let app_data = app
                 .path()
                 .app_data_dir()
-                .expect("Failed to resolve app data dir");
-            std::fs::create_dir_all(&app_data)
-                .map_err(|e| format!("Failed to create app data directory: {}", e))?;
+                .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
+            
+            // Try to create app data directory
+            if let Err(e) = std::fs::create_dir_all(&app_data) {
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    return Err(format!(
+                        "Permission denied when creating app data directory '{}'. Please check app permissions.",
+                        app_data.display()
+                    ).into());
+                }
+                return Err(format!("Failed to create app data directory: {}", e).into());
+            }
+
+            log::info!("App data directory: {}", app_data.display());
 
             // Initialize database
             let db_path = app_data.join("ytdl.db");
@@ -44,14 +55,28 @@ pub fn run() {
 
             #[cfg(any(target_os = "android", target_os = "ios"))]
             {
+                // On mobile, use app_data_dir for downloads (always writable)
                 let mobile_download_dir = app_data.join("downloads").join("YTDL");
-                std::fs::create_dir_all(&mobile_download_dir)
-                    .map_err(|e| format!("Failed to create mobile download directory: {}", e))?;
-                if database.get_setting("download_path")?.is_none() {
-                    database.save_setting(
-                        "download_path",
-                        &mobile_download_dir.to_string_lossy(),
-                    )?;
+                match std::fs::create_dir_all(&mobile_download_dir) {
+                    Ok(()) => {
+                        if database.get_setting("download_path")?.is_none() {
+                            database.save_setting(
+                                "download_path",
+                                &mobile_download_dir.to_string_lossy(),
+                            )?;
+                        }
+                        log::info!("Mobile download directory: {}", mobile_download_dir.display());
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to create mobile download directory '{}': {}. Using fallback.", mobile_download_dir.display(), e);
+                        // Fallback to app_data directly
+                        if database.get_setting("download_path")?.is_none() {
+                            database.save_setting(
+                                "download_path",
+                                &app_data.to_string_lossy(),
+                            )?;
+                        }
+                    }
                 }
             }
 
