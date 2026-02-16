@@ -34,7 +34,8 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .expect("Failed to resolve app data dir");
-            std::fs::create_dir_all(&app_data).ok();
+            std::fs::create_dir_all(&app_data)
+                .map_err(|e| format!("Failed to create app data directory: {}", e))?;
 
             // Initialize database
             let db_path = app_data.join("ytdl.db");
@@ -44,7 +45,8 @@ pub fn run() {
             #[cfg(any(target_os = "android", target_os = "ios"))]
             {
                 let mobile_download_dir = app_data.join("downloads").join("YTDL");
-                std::fs::create_dir_all(&mobile_download_dir).ok();
+                std::fs::create_dir_all(&mobile_download_dir)
+                    .map_err(|e| format!("Failed to create mobile download directory: {}", e))?;
                 if database.get_setting("download_path")?.is_none() {
                     database.save_setting(
                         "download_path",

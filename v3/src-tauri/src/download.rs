@@ -6,12 +6,12 @@ use tauri::Manager;
 
 use crate::error::{AppError, AppResult};
 
+/// Resolves the binary directory for storing yt-dlp, ffmpeg, and whisper binaries.
+/// Uses app_data_dir on all platforms to ensure a user-writable location.
+/// On Linux desktop, resource_dir typically points to read-only installation directories
+/// (e.g., /usr/lib/ytdl/ or /opt/ytdl/), which causes OS Error 13 (Permission Denied).
 pub fn get_binary_dir(app_handle: &tauri::AppHandle) -> PathBuf {
-    #[cfg(any(target_os = "android", target_os = "ios"))]
     let base_dir = app_handle.path().app_data_dir().ok();
-
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let base_dir = app_handle.path().resource_dir().ok();
 
     base_dir
         .map(|dir| dir.join("binaries"))

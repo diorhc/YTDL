@@ -36,8 +36,10 @@ impl AppLogger {
         let date = Local::now().format("%Y-%m-%d").to_string();
         let path = log_dir.join(format!("ytdl-{}.log", date));
 
-        // Ensure directory exists
-        std::fs::create_dir_all(log_dir).ok();
+        // Ensure directory exists - log warning but don't fail
+        if let Err(e) = std::fs::create_dir_all(log_dir) {
+            eprintln!("[Logger] Warning: Failed to create log directory: {}", e);
+        }
 
         let file = OpenOptions::new()
             .create(true)

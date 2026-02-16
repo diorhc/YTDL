@@ -19,8 +19,10 @@ pub struct AppSettings {
 
 impl Default for AppSettings {
     fn default() -> Self {
+        // Try XDG download directory first, then fallback to home directory
         let download_dir = dirs::download_dir()
-            .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join("Downloads"))
+            .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
+            .unwrap_or_else(|| std::path::PathBuf::from("YTDL"))
             .join("YTDL");
 
         Self {

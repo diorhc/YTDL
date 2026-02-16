@@ -86,24 +86,25 @@ fn sanitize_ytdlp_flags(flags: &[String]) -> Vec<String> {
         .collect()
 }
 
-fn default_download_dir(_app: &AppHandle) -> String {
+fn default_download_dir(app: &AppHandle) -> String {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
-        return _app
-            .path()
+        // On mobile, use app_data_dir which is always writable
+        app.path()
             .app_data_dir()
-            .unwrap_or_default()
-            .join("downloads")
-            .join("YTDL")
+            .map(|dir| dir.join("downloads").join("YTDL"))
+            .unwrap_or_else(|_| std::path::PathBuf::from("YTDL"))
             .to_string_lossy()
-            .to_string();
+            .to_string()
     }
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
+        // On desktop, prefer XDG download directory, fallback to app_data_dir
         dirs::download_dir()
-            .unwrap_or_default()
-            .join("YTDL")
+            .map(|dir| dir.join("YTDL"))
+            .or_else(|| app.path().app_data_dir().ok().map(|dir| dir.join("downloads").join("YTDL")))
+            .unwrap_or_else(|| std::path::PathBuf::from("YTDL"))
             .to_string_lossy()
             .to_string()
     }
