@@ -13,6 +13,7 @@ export function useRss() {
     try {
       setLoading(true);
       const data = await commands.getFeeds();
+      // Type assertion: Rust backend returns compatible structure
       setFeeds(data as unknown as RssFeed[]);
     } catch (err) {
       console.error("Failed to load feeds:", err);
@@ -58,6 +59,7 @@ export function useRss() {
                 f.id === feedId
                   ? {
                       ...f,
+                      // Type assertion: checkFeed returns compatible RssItem array
                       items: items as unknown as RssFeed["items"],
                       lastChecked: new Date().toISOString(),
                     }

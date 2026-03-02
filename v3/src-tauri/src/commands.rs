@@ -1268,9 +1268,12 @@ fn find_file_in_fallback_locations(
         }
     }
 
-    if let Some(downloads) = dirs::download_dir() {
-        if downloads.exists() {
-            roots.push(downloads);
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        if let Some(downloads) = dirs::download_dir() {
+            if downloads.exists() {
+                roots.push(downloads);
+            }
         }
     }
 
@@ -1323,9 +1326,12 @@ fn fallback_search_roots(configured_download_dir: Option<&str>) -> Vec<std::path
         }
     }
 
-    if let Some(downloads) = dirs::download_dir() {
-        if downloads.exists() {
-            roots.push(downloads);
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        if let Some(downloads) = dirs::download_dir() {
+            if downloads.exists() {
+                roots.push(downloads);
+            }
         }
     }
 

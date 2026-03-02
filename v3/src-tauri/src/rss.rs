@@ -79,7 +79,7 @@ async fn resolve_youtube_channel_id(url: &str) -> AppResult<String> {
         // Combined pattern: matches channelId / browseId / externalId / itemprop variants
         regex::Regex::new(
             r#"(?:"channelId":"|browseId":"|externalId":"|itemprop="channelId"\s+content=")(UC[0-9A-Za-z_-]{22})""#
-        ).unwrap()
+        ).expect("Invalid channel ID regex pattern")
     });
 
     if let Some(caps) = re.captures(&body) {
