@@ -1,6 +1,6 @@
 {
   "name": "ytdl",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "YTDL — Cross-platform video downloader with transcription",
   "private": true,
   "type": "module",

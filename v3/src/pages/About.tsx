@@ -26,7 +26,7 @@ const CREDITS = [
 
 export function AboutPage() {
   const { t } = useTranslation();
-  const [version, setVersion] = useState("3.0.0");
+  const [version, setVersion] = useState("3.1.0");
 
   useEffect(() => {
     commands

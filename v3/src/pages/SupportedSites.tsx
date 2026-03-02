@@ -24,8 +24,6 @@ const popularSites = [
   { name: "Odnoklassniki", domain: "ok.ru", icon: "🟠" },
   { name: "Pornhub", domain: "pornhub.com", icon: "🔞" },
   { name: "Bandcamp", domain: "bandcamp.com", icon: "🎶" },
-  { name: "Spotify", domain: "spotify.com", icon: "🟢" },
-  { name: "Apple Music", domain: "music.apple.com", icon: "🍎" },
   { name: "Yandex Music", domain: "music.yandex.ru", icon: "🎵" },
   { name: "Crunchyroll", domain: "crunchyroll.com", icon: "🍙" },
   { name: "Niconico", domain: "nicovideo.jp", icon: "📺" },
@@ -35,7 +33,6 @@ const popularSites = [
   { name: "ESPN", domain: "espn.com", icon: "⚽" },
   { name: "NBC", domain: "nbc.com", icon: "📺" },
   { name: "Arte", domain: "arte.tv", icon: "🎨" },
-  { name: "Disney+", domain: "disneyplus.com", icon: "✨" },
   { name: "Rumble", domain: "rumble.com", icon: "📣" },
 ];
 
