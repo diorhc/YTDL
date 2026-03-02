@@ -31,9 +31,6 @@
     "store:deny-keys",
     "store:deny-length",
     "store:deny-load",
-    "store:deny-reload",
-    "updater:default",
-    "updater:allow-check",
-    "updater:allow-download-and-install"
+    "store:deny-reload"
   ]
 }

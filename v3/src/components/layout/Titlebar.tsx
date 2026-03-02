@@ -8,15 +8,33 @@ interface TitleBarProps {
   platform?: string;
 }
 
+type WindowControls = {
+  isMaximized: () => Promise<boolean>;
+  onResized: (handler: () => void | Promise<void>) => Promise<() => void>;
+  minimize: () => Promise<void>;
+  toggleMaximize: () => Promise<void>;
+  close: () => Promise<void>;
+};
+
+function tryGetCurrentWindow(): WindowControls | null {
+  try {
+    return getCurrentWindow();
+  } catch {
+    return null;
+  }
+}
+
 export function TitleBar({ platform }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
-  const detectedPlatform = platform || (() => {
-    try {
-      return getPlatform();
-    } catch {
-      return "web";
-    }
-  })();
+  const detectedPlatform =
+    platform ||
+    (() => {
+      try {
+        return getPlatform();
+      } catch {
+        return "web";
+      }
+    })();
 
   const isMac = detectedPlatform === "macos";
   const isMobile = detectedPlatform === "android" || detectedPlatform === "ios";
@@ -26,13 +44,11 @@ export function TitleBar({ platform }: TitleBarProps) {
       return;
     }
 
-    let appWindow: any;
-    try {
-      appWindow = getCurrentWindow();
-    } catch {
-      // Browser fallback
+    const appWindow = tryGetCurrentWindow();
+    if (!appWindow) {
       return;
     }
+
     const checkMaximized = async () => {
       const maximized = await appWindow.isMaximized();
       setIsMaximized(maximized);
@@ -57,17 +73,15 @@ export function TitleBar({ platform }: TitleBarProps) {
     return <div className="titlebar-drag h-10" />;
   }
 
-  let appWindow: any = {
-    minimize: () => { },
-    toggleMaximize: () => { },
-    close: () => { }
+  const fallbackWindow: WindowControls = {
+    isMaximized: async () => false,
+    onResized: async () => () => {},
+    minimize: async () => {},
+    toggleMaximize: async () => {},
+    close: async () => {},
   };
 
-  try {
-    appWindow = getCurrentWindow();
-  } catch {
-    // Keep mock implementation for web
-  }
+  const appWindow = tryGetCurrentWindow() ?? fallbackWindow;
 
   return (
     <div className="titlebar-drag flex justify-end pt-3 pr-4">
