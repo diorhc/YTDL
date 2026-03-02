@@ -297,15 +297,31 @@ export function TranscribePage() {
     setActiveTab("history");
   }, [provider, apiModel, selectedLocalModel, isConfigured, t]);
 
-  const handleDeleteTranscript = useCallback(async (id: string) => {
-    await commands.deleteTranscript(id);
-    setItems((prev) => prev.filter((item) => item.id !== id));
-  }, []);
+  const handleDeleteTranscript = useCallback(
+    async (id: string) => {
+      try {
+        await commands.deleteTranscript(id);
+        setItems((prev) => prev.filter((item) => item.id !== id));
+      } catch (err) {
+        console.error("Failed to delete transcript:", err);
+        toast.error(t("transcribe.startFailed", { error: String(err) }));
+      }
+    },
+    [t],
+  );
 
-  const handleCopyText = useCallback(async (text?: string) => {
-    if (!text) return;
-    await navigator.clipboard.writeText(text);
-  }, []);
+  const handleCopyText = useCallback(
+    async (text?: string) => {
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast.success(t("common.done"));
+      } catch (err) {
+        console.error("Failed to copy text:", err);
+      }
+    },
+    [t],
+  );
 
   const handleDownloadText = useCallback((item: TranscriptItem) => {
     if (!item.text) return;
@@ -454,7 +470,7 @@ export function TranscribePage() {
                   <div className="flex flex-col gap-5">
                     <div className="flex items-center gap-2 mb-1">
                       <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                        <Link className="w-5 h-7" />
+                        <Link className="w-5 h-5" />
                       </div>
                       <p className="text-sm font-semibold">
                         {t("transcribe.fromUrl")}

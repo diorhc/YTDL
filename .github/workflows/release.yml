@@ -171,9 +171,14 @@ jobs:
           find artifacts/desktop-macos -type f -name "*.json" \
             -exec cp {} release-assets/ \; 2>/dev/null || true
 
-          # Android APK/AAB
-          find artifacts/android -type f \( -name "*.apk" -o -name "*.aab" \) \
-            -exec cp {} release-assets/ \; 2>/dev/null || true
+          # Android APK/AAB — rename to match YTDL naming convention
+          VERSION=$(echo "${GITHUB_REF_NAME}" | sed 's/^v//')
+          find artifacts/android -type f -name "*.apk" | while read f; do
+            cp "$f" "release-assets/YTDL_${VERSION}_universal.apk"
+          done
+          find artifacts/android -type f -name "*.aab" | while read f; do
+            cp "$f" "release-assets/YTDL_${VERSION}_universal.aab"
+          done
 
           echo "Collected release assets:"
           ls -la release-assets/

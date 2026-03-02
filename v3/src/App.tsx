@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { HashRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Provider as JotaiProvider, useSetAtom } from "jotai";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -102,6 +102,7 @@ export default function App() {
                         />
                         <Route path="/settings" element={<SettingsPage />} />
                         <Route path="/about" element={<AboutPage />} />
+                        <Route path="*" element={<Navigate to="/" replace />} />
                       </Routes>
                     </main>
                   </div>

@@ -509,7 +509,7 @@ function ChannelTab({
   const isSyncing =
     syncEntry?.phase === "fetching" || syncEntry?.phase === "importing";
   const progressValue = Math.max(0, Math.min(syncEntry?.progress ?? 0, 100));
-  const progressCircumference = 2 * Math.PI * 25;
+  const progressCircumference = 2 * Math.PI * 34;
   const progressOffset =
     progressCircumference - (progressValue / 100) * progressCircumference;
 

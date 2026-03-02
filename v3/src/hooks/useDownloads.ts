@@ -28,11 +28,11 @@ export function useDownloads() {
     if (initialized.current) return;
     initialized.current = true;
 
-    const unlisteners: (() => void)[] = [];
+    const unlistenPromises: Promise<() => void>[] = [];
 
     // 1. Register listeners first
-    events
-      .onDownloadProgress((evt) => {
+    unlistenPromises.push(
+      events.onDownloadProgress((evt) => {
         setDownloads((prev) =>
           prev.map((d) =>
             d.id === evt.id
@@ -46,11 +46,11 @@ export function useDownloads() {
               : d,
           ),
         );
-      })
-      .then((fn) => unlisteners.push(fn));
+      }),
+    );
 
-    events
-      .onDownloadComplete((evt) => {
+    unlistenPromises.push(
+      events.onDownloadComplete((evt) => {
         setDownloads((prev) =>
           prev.map((d) =>
             d.id === evt.id
@@ -66,24 +66,28 @@ export function useDownloads() {
           ),
         );
         toast.success("Download completed!");
-      })
-      .then((fn) => unlisteners.push(fn));
+      }),
+    );
 
-    events
-      .onDownloadError((evt) => {
+    unlistenPromises.push(
+      events.onDownloadError((evt) => {
         setDownloads((prev) =>
           prev.map((d) =>
             d.id === evt.id ? { ...d, status: "error", error: evt.error } : d,
           ),
         );
         toast.error(`Download failed: ${evt.error}`);
-      })
-      .then((fn) => unlisteners.push(fn));
+      }),
+    );
 
     // 2. Then load initial data (listeners are already active)
     loadDownloads();
 
-    return () => unlisteners.forEach((fn) => fn());
+    return () => {
+      Promise.all(unlistenPromises).then((fns) => {
+        fns.forEach((fn) => fn());
+      });
+    };
   }, [setDownloads, loadDownloads]);
 
   const startDownload = useCallback(
