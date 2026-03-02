@@ -1,8 +1,10 @@
 import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { useAtomValue } from "jotai";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
+import { platformAtom } from "@/store/atoms";
 import {
   Loader2,
   AlertCircle,
@@ -24,11 +26,12 @@ interface PlaylistDownloadProps {
 
 export function PlaylistDownload({ onDownloadStart }: PlaylistDownloadProps) {
   const { t } = useTranslation();
+  const platform = useAtomValue(platformAtom);
+  const isAndroid = platform === "android";
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [playlist, setPlaylist] = useState<PlaylistInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [startIndex, setStartIndex] = useState("1");
   const [endIndex, setEndIndex] = useState("");
   const [selectedQuality, setSelectedQuality] = useState<string>("best");
@@ -43,7 +46,6 @@ export function PlaylistDownload({ onDownloadStart }: PlaylistDownloadProps) {
     try {
       const info = await commands.getPlaylistInfo(url.trim());
       setPlaylist(info);
-      setSelectedIds(new Set());
       setStartIndex("1");
       setEndIndex(String(info.entryCount));
     } catch (err) {
@@ -69,7 +71,6 @@ export function PlaylistDownload({ onDownloadStart }: PlaylistDownloadProps) {
       onDownloadStart();
       setUrl("");
       setPlaylist(null);
-      setSelectedIds(new Set());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start download");
     }
@@ -87,43 +88,56 @@ export function PlaylistDownload({ onDownloadStart }: PlaylistDownloadProps) {
   return (
     <div className="flex flex-col h-full gap-4">
       {/* URL Input */}
-      <div className="flex gap-2 mb-4">
+      <div
+        className={`flex gap-2 items-center ${isAndroid ? "w-full overflow-hidden" : ""}`}
+      >
         <Input
-          placeholder="Enter playlist URL..."
+          placeholder={t("download.playlistPlaceholder")}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleFetchPlaylist()}
-          className="flex-1 h-11"
+          className="flex-1 h-12 rounded-full bg-background/50 border-border/50 focus-visible:ring-primary/50 text-base min-w-0"
         />
-        <Button variant="outline" onClick={handlePaste} className="h-11">
-          <ClipboardPaste className="w-4 h-4 mr-2" />
-          Paste
+        <Button
+          variant="outline"
+          onClick={handlePaste}
+          className={`h-12 rounded-full bg-background/50 border-border/50 hover:bg-muted shadow-sm whitespace-nowrap flex-shrink-0 ${isAndroid ? "w-12 px-0" : ""}`}
+        >
+          <ClipboardPaste className="w-5 h-5" />
+          <span className={`${isAndroid ? "hidden" : "hidden sm:inline"}`}>
+            {t("download.paste")}
+          </span>
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="h-11">
-              <ChevronDown className="w-4 h-4 mr-2" />
-              {selectedQuality === "best"
-                ? "Best"
-                : selectedQuality === "2160p"
-                  ? "4K (2160p)"
-                  : selectedQuality === "1440p"
-                    ? "1440p"
-                    : selectedQuality === "1080p"
-                      ? "1080p"
-                      : selectedQuality === "720p"
-                        ? "720p"
-                        : selectedQuality === "480p"
-                          ? "480p"
-                          : "Audio only"}
+            <Button
+              variant="outline"
+              className={`h-12 rounded-full bg-background/50 border-border/50 hover:bg-muted shadow-sm whitespace-nowrap flex-shrink-0 ${isAndroid ? "w-12 px-0" : ""}`}
+            >
+              <ChevronDown className="w-5 h-5" />
+              <span className={`${isAndroid ? "hidden" : "hidden sm:inline"}`}>
+                {selectedQuality === "best"
+                  ? t("download.bestQuality")
+                  : selectedQuality === "2160p"
+                    ? t("download.quality4k")
+                    : selectedQuality === "1440p"
+                      ? "1440p"
+                      : selectedQuality === "1080p"
+                        ? "1080p"
+                        : selectedQuality === "720p"
+                          ? "720p"
+                          : selectedQuality === "480p"
+                            ? "480p"
+                            : t("download.audioOnly")}
+              </span>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" className="rounded-xl">
             <DropdownMenuItem onClick={() => setSelectedQuality("best")}>
-              Best quality
+              {t("download.bestQuality")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setSelectedQuality("2160p")}>
-              4K (2160p)
+              {t("download.quality4k")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setSelectedQuality("1440p")}>
               1440p
@@ -138,17 +152,19 @@ export function PlaylistDownload({ onDownloadStart }: PlaylistDownloadProps) {
               480p
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setSelectedQuality("bestaudio")}>
-              Audio only
+              {t("download.audioOnly")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <Button
           onClick={handleFetchPlaylist}
           disabled={!url.trim() || loading}
-          className="h-11"
+          className="h-12 rounded-full shadow-sm text-base font-medium whitespace-nowrap"
         >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-          {t("download.fetchPlaylist")}
+          {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
+          <span className="hidden sm:inline">
+            {t("download.fetchPlaylist")}
+          </span>
         </Button>
       </div>
 
@@ -188,7 +204,7 @@ export function PlaylistDownload({ onDownloadStart }: PlaylistDownloadProps) {
               <div>
                 <h3 className="font-semibold">{playlist.title}</h3>
                 <p className="text-sm text-muted-foreground">
-                  {playlist.entryCount} videos
+                  {t("download.videosCount", { count: playlist.entryCount })}
                 </p>
               </div>
             </div>
@@ -197,7 +213,7 @@ export function PlaylistDownload({ onDownloadStart }: PlaylistDownloadProps) {
             <div className="flex gap-2 mb-4">
               <div className="flex-1">
                 <label className="text-sm text-muted-foreground mb-1 block">
-                  Start
+                  {t("download.rangeStart")}
                 </label>
                 <Input
                   type="number"
@@ -210,7 +226,7 @@ export function PlaylistDownload({ onDownloadStart }: PlaylistDownloadProps) {
               </div>
               <div className="flex-1">
                 <label className="text-sm text-muted-foreground mb-1 block">
-                  End
+                  {t("download.rangeEnd")}
                 </label>
                 <Input
                   type="number"
@@ -225,15 +241,12 @@ export function PlaylistDownload({ onDownloadStart }: PlaylistDownloadProps) {
 
             <Button onClick={handleDownloadPlaylist} className="w-full">
               {t("download.downloadSelected")} (
-              {selectedIds.size > 0
-                ? selectedIds.size
-                : (parseInt(endIndex) || playlist.entryCount) -
-                  (parseInt(startIndex) || 1) +
-                  1}
+              {(parseInt(endIndex) || playlist.entryCount) -
+                (parseInt(startIndex) || 1) +
+                1}
               )
             </Button>
           </Card>
-
         </div>
       )}
     </div>

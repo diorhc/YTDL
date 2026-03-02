@@ -1,16 +1,22 @@
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
-use tokio::time::interval;
+use tokio::sync::{Mutex, Notify};
 use tauri::{AppHandle, Manager, Emitter};
 
 use crate::db::Database;
 use crate::rss;
 
-/// RSS background scheduler that periodically checks feeds for new content
+/// RSS background scheduler that periodically checks feeds for new content.
+/// Uses `tokio::select!` with a `Notify` so interval changes take effect immediately
+/// (Issue #9) and supports graceful shutdown via `AbortHandle` (Issue #10).
 pub struct RssScheduler {
     is_running: Arc<Mutex<bool>>,
     interval_minutes: Arc<Mutex<u64>>,
+    /// Notified whenever the interval changes or shutdown is requested,
+    /// so the sleep loop wakes up immediately instead of waiting the full old interval.
+    wake_notify: Arc<Notify>,
+    /// Handle to abort the background task on shutdown.
+    abort_handle: Mutex<Option<tokio::task::AbortHandle>>,
 }
 
 impl RssScheduler {
@@ -18,6 +24,8 @@ impl RssScheduler {
         Self {
             is_running: Arc::new(Mutex::new(false)),
             interval_minutes: Arc::new(Mutex::new(60)), // Default 1 hour
+            wake_notify: Arc::new(Notify::new()),
+            abort_handle: Mutex::new(None),
         }
     }
 
@@ -32,23 +40,37 @@ impl RssScheduler {
 
         let is_running_clone = self.is_running.clone();
         let interval_minutes = self.interval_minutes.clone();
+        let wake_notify = self.wake_notify.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             loop {
+                // Check if still running BEFORE sleeping
+                if !*is_running_clone.lock().await {
+                    break;
+                }
+
                 // Get current interval
                 let minutes = *interval_minutes.lock().await;
                 if minutes == 0 {
-                    // Disabled, check again in 1 minute
-                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    // Disabled — wait for notification (interval change or shutdown)
+                    wake_notify.notified().await;
                     continue;
                 }
 
-                // Wait for the interval
-                let mut ticker = interval(Duration::from_secs(minutes * 60));
-                ticker.tick().await; // First tick is immediate, skip it
-                ticker.tick().await; // Wait for actual interval
+                let sleep_duration = Duration::from_secs(minutes * 60);
 
-                // Check if still running
+                // Use select! to wake up immediately when interval changes or shutdown
+                tokio::select! {
+                    _ = tokio::time::sleep(sleep_duration) => {
+                        // Normal timeout — check feeds
+                    }
+                    _ = wake_notify.notified() => {
+                        // Woken up by interval change or shutdown request
+                        continue;
+                    }
+                }
+
+                // Check if still running after sleep
                 if !*is_running_clone.lock().await {
                     break;
                 }
@@ -58,19 +80,38 @@ impl RssScheduler {
                     log::error!("RSS background check failed: {}", e);
                 }
             }
+            log::info!("[RssScheduler] Background task stopped");
         });
+
+        // Store the abort handle for graceful shutdown
+        let mut abort = self.abort_handle.lock().await;
+        *abort = Some(handle.abort_handle());
     }
 
-    /// Stop the background RSS checking task
+    /// Stop the background RSS checking task (graceful shutdown)
     pub async fn stop(&self) {
         let mut is_running = self.is_running.lock().await;
         *is_running = false;
+        drop(is_running);
+
+        // Wake the sleep so it exits the loop immediately
+        self.wake_notify.notify_one();
+
+        // Also abort the task as a safety net
+        let mut abort = self.abort_handle.lock().await;
+        if let Some(handle) = abort.take() {
+            handle.abort();
+        }
     }
 
-    /// Set the check interval in minutes (0 to disable)
+    /// Set the check interval in minutes (0 to disable).
+    /// Immediately wakes the scheduler so the new interval takes effect.
     pub async fn set_interval(&self, minutes: u64) {
         let mut interval = self.interval_minutes.lock().await;
         *interval = minutes;
+        drop(interval);
+        // Wake the scheduler so the new interval takes effect immediately
+        self.wake_notify.notify_one();
     }
 
     /// Get the current interval in minutes
@@ -120,17 +161,12 @@ async fn check_all_feeds(app: &AppHandle) -> Result<(), String> {
         // Update database
         {
             let db_lock = db.lock().map_err(|e| e.to_string())?;
-            
-            // Update last checked
             let _ = db_lock.update_feed_last_checked(&feed_id);
-            
-            // Update channel info
             if !title.is_empty() {
                 let _ = db_lock.update_feed_channel_info(&feed_id, &title, "");
             }
-
-            // Insert new items (INSERT OR IGNORE will skip existing)
             for item in &items {
+                let already_exists = db_lock.feed_item_exists(&item.id);
                 if db_lock.insert_feed_item(
                     &item.id,
                     &feed_id,
@@ -140,7 +176,7 @@ async fn check_all_feeds(app: &AppHandle) -> Result<(), String> {
                     &item.url,
                     &item.published_at,
                     &item.video_type,
-                ).is_ok() {
+                ).is_ok() && !already_exists {
                     new_items_count += 1;
                 }
             }
@@ -149,14 +185,11 @@ async fn check_all_feeds(app: &AppHandle) -> Result<(), String> {
         log::info!("Checked RSS feed: {} - {} items", feed_title, items.len());
     }
 
-    // Send notification if new items found
     if new_items_count > 0 {
-        // Emit event to frontend
         let _ = app.emit("rss-updated", serde_json::json!({
             "newItems": new_items_count
         }));
 
-        // Show desktop notification if enabled
         if let Ok(db_lock) = db.lock() {
             if let Ok(Some(notifications)) = db_lock.get_setting("notifications") {
                 if notifications == "true" {

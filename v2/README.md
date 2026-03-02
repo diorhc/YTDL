@@ -1,6 +1,6 @@
-<div align="center" style="text-align:center">
+<div align="center">
 
-![Demo (screenshot)](https://i.imgur.com/pAeRvcz.png)
+![Demo](https://i.imgur.com/pAeRvcz.png)
 
 # YTDL v2
 
@@ -9,654 +9,255 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-lightgrey.svg?style=for-the-badge)](https://github.com/diorhc/YTDL)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
+**Простой и мощный загрузчик видео с веб-интерфейсом.**
+Скачивайте видео до 8K с YouTube, VK, Dzen, Rutube, Instagram, TikTok и других платформ.
+
 </div>
 
 ---
 
-<div align="center">
+## ✨ Возможности
 
-### 📥 A modern, feature-rich YouTube downloader with a beautiful web interface and powerful command-line tools. Download videos up to 8K quality with intelligent fallback mechanisms and advanced error recovery. Yandex, Dzen, VK, Rutube - support
-
-</div>
-
-> **⚠️ Legal Notice**: This tool is for educational and personal use only. Please respect YouTube's Terms of Service and copyright laws. Only download content you have permission to download.
-
----
-
-<div align="center">
-
-### ✨ Key Features
-
-<table>
-<tr>
-<td width="50%">
-
-### 📹 High-Quality Downloads
-
-- 🎯 **Up to 8K resolution** (7680x4320)
-- 🎵 **Audio-only MP3** extraction
-- 📊 Multiple quality options
-- 🏷️ Metadata embedding
-
-</td>
-<td width="50%">
-
-### 🎨 Modern Web Interface
-
-- 🌓 **Dark/Light mode**
-- 📱 Mobile-friendly responsive design
-- 📊 Real-time progress tracking
-- 📋 Download history & clipboard integration
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-### ⚡ Advanced Technology
-
-- 🚀 **Dual-mode** (Ultra/Standard)
-- 🔄 Intelligent error recovery
-- 🛡️ Rate limiting protection
-- 🧵 Multi-threaded downloads
-- 🎬 FFmpeg integration
-
-</td>
-<td width="50%">
-
-### �️ Reliability & Robustness
-
-- 🔁 Multiple retry mechanisms
-- 🍪 Cookie-based sessions
-- 📦 Format fallback system
-- 🏭 Production-ready WSGI server
-- 🌍 **Multi-Platform Support**
-
-</td>
-</tr>
-</table>
+|                                                           |                                                               |
+| --------------------------------------------------------- | ------------------------------------------------------------- |
+| **📹 Загрузка видео** — до 8K, аудио MP3, метаданные      | **🌐 Веб-интерфейс** — тёмная/светлая тема, прогресс, история |
+| **⚡ Два режима** — Ultra (раздельные потоки) и Standard  | **✂️ Обрезка видео** — по времени через FFmpeg                |
+| **🔄 Автовосстановление** — повторы при 403, SSL fallback | **🌍 Мультиплатформа** — Windows, macOS, Linux, Android       |
 
 ---
 
-### 🚀 Quick Start
+## 📥 Установка
 
-</div>
+> **Важно:** Не используйте `git clone` — скачивайте готовый релиз со страницы Releases.
 
-<table align="center">
-<tr>
-<td>
+### 🖥️ Windows
+
+1. Перейдите на страницу [**Releases**](https://github.com/diorhc/YTDL/releases)
+2. Скачайте **`YTDL-v2-windows.zip`**
+3. Распакуйте архив в любую папку
+4. Запустите **`launcher.bat`**
+5. Выберите пункт **2 (Setup)** — установятся Python, FFmpeg и зависимости
+6. Выберите пункт **1 (Web Interface)** → откроется браузер на [localhost:5005](http://localhost:5005)
+
 <details>
-<summary><b>🖥️ Windows</b></summary>
-<br>
+<summary>Создать ярлык на рабочем столе (PowerShell)</summary>
 
-```batch
-# 1️⃣ Clone repository
-git clone https://github.com/diorhc/YTDL.git
-cd YTDL
-
-# 2️⃣ Create desktop shortcut (PowerShell)
+```powershell
 $desktop = "$env:USERPROFILE\Desktop"
-if (-not (Test-Path $desktop)) {
-    New-Item -ItemType Directory -Path $desktop | Out-Null
-}
 $WshShell = New-Object -comObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut("$desktop\YTDL.lnk")
 $Shortcut.TargetPath = "$(Resolve-Path 'launcher.bat')"
 $Shortcut.WorkingDirectory = (Get-Location).Path
 $Shortcut.Description = "YTDL Launcher"
 $Shortcut.Save()
-Write-Host "✅ Shortcut created on Desktop: YTDL.lnk"
-
-# 3️⃣ Start application
-"2`n1" | cmd /c launcher.bat
 ```
 
-**🎉 Done! Open browser at [localhost:5005](http://localhost:5005)**
-<br><br>
-
 </details>
-</td>
-<td>
-<details>
-<summary><b>🐧 Linux / 🍎 macOS</b></summary>
-<br>
+
+### 🐧 Linux / 🍎 macOS
+
+1. Перейдите на страницу [**Releases**](https://github.com/diorhc/YTDL/releases)
+2. Скачайте **`YTDL-v2-unix.tar.gz`**
+3. Распакуйте и запустите:
 
 ```bash
-# 1️⃣ Install prerequisites
-sudo apt update
-sudo apt install -y git curl
-
-# 2️⃣ Clone repository
-git clone https://github.com/diorhc/YTDL.git
-cd YTDL
-
-# 3️⃣ Make launcher executable
+tar -xzf YTDL-v2-unix.tar.gz
+cd YTDL-v2
 chmod +x launcher.sh
-
-# 4️⃣ Start application
 ./launcher.sh
-# Choose option 2 (Setup)
-# Choose option 1 (Launch)
+# Выберите 2 (Setup), затем 1 (Launch)
 ```
 
-**📖 See [README_UNIX.md](README_UNIX.md)**
-<br><br>
+> 📖 Подробнее: [README_UNIX.md](README_UNIX.md)
 
-</details>
-</td>
-<td>
-<details>
-<summary><b>🤖 Android</b></summary>
-<br>
+### 🤖 Android (Termux)
 
-> **📱 Install from [F-Droid](https://f-droid.org/packages/com.termux/)**
+1. Установите [**Termux**](https://f-droid.org/packages/com.termux/) из F-Droid (не из Google Play!)
+2. В Termux:
 
 ```bash
-# 1️⃣ Update packages
 pkg update -y && pkg upgrade -y
-
-# 2️⃣ Clone repository
-pkg install git -y
-git clone https://github.com/diorhc/YTDL.git
-cd YTDL
-
-# 3️⃣ Make launcher executable
-chmod +x launcher_termux.sh
-
-# 4️⃣ Start application
+pkg install -y wget tar
+cd ~
+# Скачайте YTDL-v2-unix.tar.gz со страницы Releases:
+# https://github.com/diorhc/YTDL/releases
+wget https://github.com/diorhc/YTDL/releases/latest/download/YTDL-v2-unix.tar.gz
+tar -xzf YTDL-v2-unix.tar.gz
+cd YTDL-v2
+chmod +x launcher_termux.sh setup_termux.sh
 ./launcher_termux.sh
-# Choose options 3, 4, 5, then 1
+# Выберите 3 → 4 → 5 (установка), затем 1 (запуск)
 ```
 
-**📱 See [README_TERMUX.md](README_TERMUX.md)**
-<br><br>
-
-</details>
-</td>
-</tr>
-</table>
+> 📖 Подробнее: [README_TERMUX.md](README_TERMUX.md)
 
 ---
 
-<div align="center">
-
-### 🌐 Web Interface Usage
+## 🌐 Использование — Веб-интерфейс
 
 ```mermaid
 graph LR
-    A[🚀 Start Server] --> B[🌍 Open Browser]
-    B --> C[📋 Paste URL]
-    C --> D[🎯 Select Quality]
-    D --> E[⬇️ Download]
-    E --> F[📊 Track Progress]
-    F --> G[✅ Complete]
-    G --> H[📜 View History]
+    A[Запуск сервера] --> B[Браузер localhost:5005]
+    B --> C[Вставить URL]
+    C --> D[Выбрать качество]
+    D --> E[Скачать]
+    E --> F[Готово]
 ```
 
-</div>
+1. Запустите сервер через лаунчер
+2. Откройте браузер → [localhost:5005](http://localhost:5005)
+3. Вставьте ссылку на видео
+4. Выберите качество и нажмите «Скачать»
 
-<div align="center">
-
-**1️⃣ Start the server** → **2️⃣ Open your browser** → **3️⃣ Paste YouTube URL** → **4️⃣ Select quality** → **5️⃣ Download** → **6️⃣ Access history**
-
-**🌓 Theme Toggle** • **📋 Clipboard Integration** • **📊 Live Progress** • **📜 Download History** • **✂️ Trim Video** • **🎵 Audio Selection**
+**Доступно:** переключение темы, обрезка видео, выбор аудиодорожки, история загрузок, прогресс в реальном времени
 
 ---
 
-### 🖱️ Command Line Interface
-
-</div>
-
-<details>
-<summary><b>📦 Basic Usage</b></summary>
-
-<br>
+## 🖱️ Использование — Командная строка
 
 ```bash
-# 🎯 Download best quality
+# Лучшее качество
 python youtube_downloader.py "https://youtu.be/VIDEO_ID"
 
-# 📺 Download specific quality
+# Конкретное качество
 python youtube_downloader.py "https://youtu.be/VIDEO_ID" -q 1080p
 
-# 🎵 Audio only download
+# Только аудио
 python youtube_downloader.py "https://youtu.be/VIDEO_ID" --audio-only
 
-# 📝 Custom filename
-python youtube_downloader.py "https://youtu.be/VIDEO_ID" -o "My Custom Video"
+# Своё имя файла
+python youtube_downloader.py "https://youtu.be/VIDEO_ID" -o "Моё видео"
 
-# 📋 List available formats
+# Ultra режим (раздельные потоки, лучшее качество)
+python youtube_downloader.py "https://youtu.be/VIDEO_ID" -m ultra -q 4k
+
+# Обрезка видео (с 1:30 до 5:45)
+python youtube_downloader.py "https://youtu.be/VIDEO_ID" --trim-start 90 --trim-end 345
+
+# Выбор языка аудио
+python youtube_downloader.py "https://youtu.be/VIDEO_ID" --audio-language ru
+
+# Список форматов
 python youtube_downloader.py "https://youtu.be/VIDEO_ID" --list-formats
-```
 
-</details>
-
-<details>
-<summary><b>⚡ Advanced Options</b></summary>
-
-<br>
-
-```bash
-# 🚀 Ultra mode (separate video/audio streams for best quality)
-python youtube_downloader.py "https://youtu.be/VIDEO_ID" --mode ultra -q 4k
-
-# 📦 Standard mode (single stream)
-python youtube_downloader.py "https://youtu.be/VIDEO_ID" --mode standard -q 1080p
-
-# 📁 Custom download directory
-python youtube_downloader.py "https://youtu.be/VIDEO_ID" --download-path "./my_videos/"
-
-# 🔍 Show capabilities
+# Показать возможности
 python youtube_downloader.py --capabilities
-
-# ✂️ Trim video (download specific segment)
-python youtube_downloader.py "https://youtu.be/VIDEO_ID" --trim-start 00:01:30 --trim-end 00:05:45
-
-# 🌐 Select audio language
-python youtube_downloader.py "https://youtu.be/VIDEO_ID" --audio-language en
 ```
 
-</details>
+### Параметры CLI
 
-<div align="center">
-
-### 🎛️ CLI Options Reference
-
-| Option             | Short | Description                         |
-| ------------------ | ----- | ----------------------------------- |
-| `--quality`        | `-q`  | Video quality (e.g., 1080p, 4k, 8k) |
-| `--audio-only`     | `-a`  | Download audio only (MP3)           |
-| `--output`         | `-o`  | Custom filename                     |
-| `--mode`           | `-m`  | Download mode (ultra/standard)      |
-| `--list-formats`   | `-l`  | List all available formats          |
-| `--download-path`  |       | Custom download directory           |
-| `--trim-start`     |       | Start time for trimming (HH:MM:SS)  |
-| `--trim-end`       |       | End time for trimming (HH:MM:SS)    |
-| `--audio-language` |       | Select audio track language         |
-
-</div>
+| Параметр           | Сокр. | Описание                                                                         |
+| ------------------ | ----- | -------------------------------------------------------------------------------- |
+| `--quality`        | `-q`  | Качество: `best`, `4k`, `1440p`, `1080p`, `720p`, `480p`, `360p`, `240p`, `144p` |
+| `--mode`           | `-m`  | Режим: `auto`, `ultra`, `standard`                                               |
+| `--output`         | `-o`  | Имя выходного файла                                                              |
+| `--download-path`  | `-d`  | Папка для загрузок                                                               |
+| `--audio-only`     |       | Только аудио (MP3)                                                               |
+| `--trim-start`     |       | Начало обрезки (секунды)                                                         |
+| `--trim-end`       |       | Конец обрезки (секунды)                                                          |
+| `--audio-language` |       | Код языка аудио (en, ru)                                                         |
+| `--list-formats`   |       | Показать доступные форматы                                                       |
+| `--insecure-ssl`   |       | Отключить проверку SSL                                                           |
+| `--capabilities`   |       | Показать возможности загрузчика                                                  |
 
 ---
 
-<div align="center">
-
-### 🏗️ Project Structure
-
-</div>
+## 📁 Структура проекта
 
 ```
-📦 YTDL/
-├── 🎬 youtube_downloader.py     # Core download engine
-├── 🌐 web_app.py                # Flask web application
-├── 🧪 test_quality_fix.py       # Quality detection
-├── ⚙️ config.py                 # Centralized configuration
-├── 🚀 launcher.bat              # Windows launcher
-├── 🐧 launcher.sh               # Mac/Linux launcher (chmod +x required)
-├── 🤖 launcher_termux.sh        # Android/Termux launcher (chmod +x required)
-├── ⚙️ setup_termux.sh           # Quick setup for Termux
-├── 📋 requirements.txt          # Python dependencies
-├── 📄 LICENSE                   # MIT license
-├── 📖 README.md                 # Main documentation
-├── 📘 README_UNIX.md            # Mac/Linux installation guide
-├── 📗 README_TERMUX.md          # Android/Termux installation guide
-│
-├── 📁 templates/
-│   └── 🎨 index.html            # Web interface template
-│
-└── 📁 downloads/                # Downloaded videos (auto-created)
+YTDL-v2/
+├── youtube_downloader.py   # Движок загрузки
+├── web_app.py              # Flask веб-приложение
+├── config.py               # Настройки
+├── test_quality_fix.py     # Тесты качества
+├── launcher.bat            # Лаунчер Windows
+├── launcher.sh             # Лаунчер Linux/macOS
+├── launcher_termux.sh      # Лаунчер Android/Termux
+├── setup_termux.sh         # Быстрая установка Termux
+├── requirements.txt        # Зависимости Python
+├── templates/
+│   └── index.html          # Веб-интерфейс
+└── downloads/              # Загруженные файлы (создаётся автоматически)
 ```
 
 ---
 
-<div align="center">
+## ⚙️ Настройка
 
-### 🛠️ Configuration
+Переменные окружения (необязательно):
 
-</div>
+| Переменная         | По умолчанию  | Описание                           |
+| ------------------ | ------------- | ---------------------------------- |
+| `FLASK_HOST`       | `0.0.0.0`     | Адрес сервера                      |
+| `FLASK_PORT`       | `5005`        | Порт сервера                       |
+| `DOWNLOAD_PATH`    | `./downloads` | Папка загрузок                     |
+| `DEFAULT_QUALITY`  | `best`        | Качество по умолчанию              |
+| `DEBUG_MODE`       | `false`       | Режим отладки                      |
+| `INSECURE_SSL`     | `false`       | Пропуск проверки SSL               |
+| `FLASK_SECRET_KEY` | (авто)        | Секретный ключ Flask               |
+| `USE_WAITRESS`     | `0`           | Использовать Waitress (production) |
 
-<details>
-<summary><b>🌍 Environment Variables</b></summary>
+---
 
-<br>
+## 🐛 Решение проблем
 
-Create a `.env` file for custom configuration:
-
-```env
-# Server Configuration
-FLASK_HOST=0.0.0.0
-FLASK_PORT=5005
-FLASK_DEBUG=False
-
-# Download Settings
-DEFAULT_QUALITY=1080p
-DOWNLOAD_PATH=./downloads/
-MAX_RETRIES=3
-
-# Advanced Options
-ENABLE_COOKIES=True
-USER_AGENT=Custom User Agent
-AUTO_UPDATE_REQUIREMENTS=1
-AUTO_UPDATE_DRY_RUN=1
-```
-
-</details>
+| Проблема                    | Решение                                                          |
+| --------------------------- | ---------------------------------------------------------------- |
+| `ModuleNotFoundError`       | Запустите Setup в лаунчере или `pip install -r requirements.txt` |
+| Не стартует сервер          | Проверьте, свободен ли порт 5005                                 |
+| Ошибка загрузки             | Обновите yt-dlp: `pip install --upgrade yt-dlp`                  |
+| Нет звука в видео           | Установите FFmpeg                                                |
+| 403 Forbidden               | Автоматические повторы; попробуйте позже                         |
+| Ошибка SSL                  | Включите «Insecure SSL» в интерфейсе или `--insecure-ssl`        |
+| Обрезка не работает         | Убедитесь, что FFmpeg установлен                                 |
+| Низкое качество (макс 360p) | Установите FFmpeg для раздельных потоков                         |
 
 <details>
-<summary><b>⚙️ Custom Settings</b></summary>
+<summary><b>Установка FFmpeg</b></summary>
 
-<br>
-
-Edit `web_app.py` for advanced customization:
-
-```python
-# Download directory
-DOWNLOAD_DIR = "D:/MyVideos/"
-
-# Server configuration
-HOST = "0.0.0.0"  # Listen on all network interfaces
-PORT = 8080       # Custom port
-
-# Performance settings
-MAX_CONCURRENT_DOWNLOADS = 3
-CHUNK_SIZE = 1024 * 1024  # 1MB chunks
-```
-
-</details>
-
-<details>
-<summary><b>🔄 Auto-update Requirements</b></summary>
-
-<br>
-
-On startup, the launcher automatically checks and updates `requirements.txt`:
-
-- **Disable auto-checks**: Set `AUTO_UPDATE_REQUIREMENTS=0`
-- **Force real write**: Set `AUTO_UPDATE_DRY_RUN=0`
-- **CLI flag**: Pass `--no-auto-update` when starting
-
-The launcher's "Update" option (option 4) checks for outdated packages and offers automatic upgrades.
+- **Windows:** Автоматически через лаунчер (Setup) или вручную с [ffmpeg.org](https://ffmpeg.org/download.html)
+- **macOS:** `brew install ffmpeg`
+- **Linux:** `sudo apt install ffmpeg`
+- **Termux:** `pkg install ffmpeg`
 
 </details>
 
 ---
 
-<div align="center">
+## 🔒 Безопасность
 
-### 🐛 Troubleshooting
+- Все данные обрабатываются локально — никакой телеметрии
+- Защита от Path Traversal, SSRF, XSS, Command Injection
+- Валидация URL и файловых путей
+- Rate limiting на API-эндпоинтах
+- CSP-заголовки безопасности
 
-| 🔴 Problem               | ✅ Solution                                             |
-| ------------------------ | ------------------------------------------------------- |
-| `ModuleNotFoundError`    | Run `pip install -r requirements.txt`                   |
-| Web server won't start   | Check if port 5005 is in use, try another port          |
-| Download fails           | Update yt-dlp: `pip install --upgrade yt-dlp`           |
-| No audio in video        | Install FFmpeg and ensure it's in PATH                  |
-| 403 Forbidden errors     | Tool retries automatically with exponential backoff     |
-| Slow downloads           | Check internet connection; YouTube may be rate limiting |
-| SSL certificate errors   | Enable "Insecure SSL" option in web interface           |
-| Trim feature not working | Ensure FFmpeg is installed and accessible               |
+> Подробнее: [SECURITY.md](SECURITY.md)
 
-</div>
+---
 
-<details>
-<summary><b>🔍 Debug Mode</b></summary>
+## 🤝 Участие в проекте
 
-<br>
-
-Enable detailed logging for troubleshooting:
-
-```bash
-# Start with debug mode
-python web_app.py --debug
-
-# Check logs
-cat download.log
-```
-
-</details>
-
-<details>
-<summary><b>🔄 Updating yt-dlp</b></summary>
-
-<br>
-
-Keep yt-dlp up to date for best compatibility:
-
-```bash
-# Update via pip
-pip install --upgrade yt-dlp
-
-# Update yt-dlp directly
-yt-dlp -U
-```
-
-</details>
-
-<details>
-<summary><b>🛡️ FFmpeg Installation</b></summary>
-
-<br>
-
-**Windows:**
-
-```batch
-# Download from https://ffmpeg.org/download.html
-# Add to PATH environment variable
-```
-
-**Linux/macOS:**
-
-```bash
-# Ubuntu/Debian
-sudo apt install ffmpeg
-
-# macOS (Homebrew)
-brew install ffmpeg
-```
-
-**Android (Termux):**
-
-```bash
-pkg install ffmpeg
-```
-
-</details>
+1. Форкните репозиторий
+2. Создайте ветку: `git checkout -b feature/my-feature`
+3. Внесите изменения и добавьте тесты
+4. Отправьте PR
 
 ---
 
 <div align="center">
 
-### 🔒 Security & Privacy
+**Используемые технологии:**
 
-<table>
-<tr>
-<td align="center" width="25%">
-<br>
-🔐<br><br>
-<b>No Data Collection</b><br>
-All processing is local
-</td>
-<td align="center" width="25%">
-<br>
-📦<br><br>
-<b>Self-Contained</b><br>
-No external dependencies
-</td>
-<td align="center" width="25%">
-<br>
-✅<br><br>
-<b>Safe Downloads</b><br>
-Validates URLs & file types
-</td>
-<td align="center" width="25%">
-<br>
-🛡️<br><br>
-<b>Hardened Security</b><br>
-SSRF, XSS & Path Traversal protected
-</td>
-</tr>
-</table>
+[![yt-dlp](https://img.shields.io/badge/yt--dlp-Engine-red?style=for-the-badge&logo=youtube)](https://github.com/yt-dlp/yt-dlp)
+[![Flask](https://img.shields.io/badge/Flask-Web-black?style=for-the-badge&logo=flask)](https://flask.palletsprojects.com/)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-Video-green?style=for-the-badge&logo=ffmpeg)](https://ffmpeg.org/)
+[![MoviePy](https://img.shields.io/badge/MoviePy-Merge-blue?style=for-the-badge)](https://zulko.github.io/moviepy/)
 
-</div>
+![Demo GIF](https://i.imgur.com/9lJrPy3.gif)
 
----
+⭐ Поставьте звезду, если проект полезен!
 
-<div align="center">
-
-### 🤝 Contributing
-
-</div>
-
-<details>
-<summary><b>📝 Contribution Guidelines</b></summary>
-
-<br>
-
-1. **🍴 Fork the repository**
-2. **🌿 Create a feature branch:**
-   ```bash
-   git checkout -b feature/amazing-feature
-   ```
-3. **✨ Make your changes** (follow code style)
-4. **🧪 Add tests** for new functionality
-5. **💾 Commit your changes:**
-   ```bash
-   git commit -m 'Add amazing feature'
-   ```
-6. **📤 Push to the branch:**
-   ```bash
-   git push origin feature/amazing-feature
-   ```
-7. **🔀 Open a Pull Request**
-
-</details>
-
-<details>
-<summary><b>🔧 Development Setup</b></summary>
-
-<br>
-
-```bash
-# Clone repository
-git clone https://github.com/diorhc/YTDL.git
-cd YTDL
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Install development tools
-pip install pytest black flake8 mypy
-
-# Run tests
-python -m pytest
-
-# Format code
-black *.py
-
-# Lint code
-flake8 *.py
-
-# Type checking
-mypy *.py
-```
-
-</details>
-
-<details>
-<summary><b>📋 Code Style</b></summary>
-
-<br>
-
-- Follow PEP 8 guidelines
-- Use meaningful variable names
-- Add docstrings to functions/classes
-- Keep functions focused and small
-- Write unit tests for new features
-
-</details>
-
-<br>
-
----
-
-<div align="center">
-
-### 📚 Platform-Specific Guides
-
-|    Platform    |      Quick Start       |          Full Documentation          |
-| :------------: | :--------------------: | :----------------------------------: |
-| 🖥️ **Windows** |   Run `launcher.bat`   |        [README.md](README.md)        |
-|  🐧 **Linux**  |    `./launcher.sh`     |   [README_UNIX.md](README_UNIX.md)   |
-|  🍎 **macOS**  |    `./launcher.sh`     |   [README_UNIX.md](README_UNIX.md)   |
-| 🤖 **Android** | `./launcher_termux.sh` | [README_TERMUX.md](README_TERMUX.md) |
-
-</div>
-
----
-
-<div align="center">
-
-**Built with amazing open-source projects:**
-
-<p align="center">
-   <a href="https://github.com/yt-dlp/yt-dlp">
-      <img src="https://img.shields.io/badge/yt--dlp-Download%20Engine-red?style=for-the-badge&logo=youtube" alt="yt-dlp">
-   </a>
-   &nbsp;&nbsp;
-   <a href="https://flask.palletsprojects.com/">
-      <img src="https://img.shields.io/badge/Flask-Web%20Framework-black?style=for-the-badge&logo=flask" alt="Flask">
-   </a>
-   &nbsp;&nbsp;
-   <a href="https://ffmpeg.org/">
-      <img src="https://img.shields.io/badge/FFmpeg-Video%20Processing-green?style=for-the-badge&logo=ffmpeg" alt="FFmpeg">
-   </a>
-   &nbsp;&nbsp;
-   <a href="https://zulko.github.io/moviepy/">
-      <img src="https://img.shields.io/badge/MoviePy-Video%20Editing-blue?style=for-the-badge" alt="MoviePy">
-   </a>
-</p>
-
-</div>
-
----
-
-<div align="center">
-
-<table>
-<tr>
-<td align="center" width="33%">
-<br>
-🐛<br><br>
-<b><a href="https://github.com/diorhc/YouTube-Downloader/issues">Report Issues</a></b><br>
-Found a bug? Let us know!
-<br><br>
-</td>
-<td align="center" width="33%">
-<br>
-💬<br><br>
-<b><a href="https://github.com/diorhc/YouTube-Downloader/discussions">Discussions</a></b><br>
-Questions or ideas? Join the conversation!
-<br><br>
-</td>
-<td align="center" width="33%">
-<br>
-📖<br><br>
-<b>Documentation</b><br>
-Check README & inline comments
-<br><br>
-</td>
-</tr>
-</table>
-
-</div>
-
-<div align="center">
-
-![Gif demonstration](https://i.imgur.com/9lJrPy3.gif)
-
-### 🎬 Made with ❤️ for the YouTube downloading community
-
-⭐ Star this repository if you find it useful!
-
-[⬅️ Back to Project Root](../README.md)
+[🐛 Сообщить об ошибке](https://github.com/diorhc/YTDL/issues) · [💬 Обсуждения](https://github.com/diorhc/YTDL/discussions) · [⬅️ К корню проекта](../README.md)
 
 </div>

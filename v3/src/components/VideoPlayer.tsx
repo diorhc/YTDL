@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Play,
   Pause,
@@ -35,6 +36,7 @@ export function VideoPlayer({
   onClose,
   onDownload,
 }: VideoPlayerProps) {
+  const { t } = useTranslation();
   const [streamInfo, setStreamInfo] = useState<StreamInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,9 +69,11 @@ export function VideoPlayer({
       try {
         setLoading(true);
         setError(null);
-        console.log("[VideoPlayer] Fetching stream for URL:", url);
+        if (import.meta.env.DEV)
+          console.log("[VideoPlayer] Fetching stream for URL:", url);
         const info = await commands.getStreamUrl(url);
-        console.log("[VideoPlayer] Stream info received:", info);
+        if (import.meta.env.DEV)
+          console.log("[VideoPlayer] Stream info received:", info);
         if (cancelled) return;
         setStreamInfo(info);
 
@@ -299,10 +303,16 @@ export function VideoPlayer({
         );
       }
     };
-    const onLoadStart = () => console.log("[VideoPlayer] Video load started");
-    const onLoadedMetadata = () =>
-      console.log("[VideoPlayer] Video metadata loaded");
-    const onCanPlay = () => console.log("[VideoPlayer] Video can play");
+    const onLoadStart = () => {
+      if (import.meta.env.DEV) console.log("[VideoPlayer] Video load started");
+    };
+    const onLoadedMetadata = () => {
+      if (import.meta.env.DEV)
+        console.log("[VideoPlayer] Video metadata loaded");
+    };
+    const onCanPlay = () => {
+      if (import.meta.env.DEV) console.log("[VideoPlayer] Video can play");
+    };
 
     video.addEventListener("timeupdate", onTimeUpdate);
     video.addEventListener("durationchange", onDurationChange);
@@ -346,6 +356,9 @@ export function VideoPlayer({
   // Keyboard controls
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // Don't capture keyboard events when user is typing in an input
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       switch (e.key) {
         case " ":
         case "k":
@@ -425,15 +438,17 @@ export function VideoPlayer({
     "";
   const audioSrc = isSeparateStreams ? streamInfo?.audioUrl || "" : "";
 
-  console.log(
-    "[VideoPlayer] Render - videoSrc:",
-    videoSrc ? videoSrc.substring(0, 100) + "..." : "empty",
-  );
-  console.log(
-    "[VideoPlayer] Render - audioSrc:",
-    audioSrc ? audioSrc.substring(0, 100) + "..." : "empty",
-  );
-  console.log("[VideoPlayer] Render - isSeparateStreams:", isSeparateStreams);
+  if (import.meta.env.DEV) {
+    console.log(
+      "[VideoPlayer] Render - videoSrc:",
+      videoSrc ? videoSrc.substring(0, 100) + "..." : "empty",
+    );
+    console.log(
+      "[VideoPlayer] Render - audioSrc:",
+      audioSrc ? audioSrc.substring(0, 100) + "..." : "empty",
+    );
+    console.log("[VideoPlayer] Render - isSeparateStreams:", isSeparateStreams);
+  }
 
   return (
     <div
@@ -472,7 +487,7 @@ export function VideoPlayer({
                 variant="ghost"
                 className="h-8 w-8 text-white/80 hover:text-white hover:bg-white/10"
                 onClick={() => commands.openExternal(url)}
-                title="Open in browser"
+                title={t("player.openBrowser")}
               >
                 <ExternalLink className="w-4 h-4" />
               </Button>
@@ -496,13 +511,13 @@ export function VideoPlayer({
           {loading ? (
             <div className="flex flex-col items-center gap-4">
               <Loader2 className="w-12 h-12 text-white/60 animate-spin" />
-              <p className="text-white/60 text-sm">Loading stream...</p>
+              <p className="text-white/60 text-sm">{t("player.loading")}</p>
             </div>
           ) : error ? (
             <div className="flex flex-col items-center gap-4 px-8 text-center">
               <AlertCircle className="w-12 h-12 text-red-400" />
               <p className="text-white/80 text-sm font-medium">
-                Failed to load video
+                {t("player.failed")}
               </p>
               <p className="text-white/50 text-xs max-w-md">{error}</p>
               <Button
@@ -514,7 +529,7 @@ export function VideoPlayer({
                 }}
               >
                 <ExternalLink className="w-3.5 h-3.5 mr-2" />
-                Open in browser
+                {t("player.openBrowser")}
               </Button>
             </div>
           ) : (
@@ -522,7 +537,7 @@ export function VideoPlayer({
               <video
                 ref={videoRef}
                 src={videoSrc}
-                className={`w-full h-full ${isShort ? "object-contain" : "object-contain"}`}
+                className="w-full h-full object-contain"
                 playsInline
                 poster={streamInfo?.thumbnail}
                 muted={isSeparateStreams ? true : muted}
@@ -686,7 +701,7 @@ export function VideoPlayer({
                         onClick={(e) => e.stopPropagation()}
                       >
                         <p className="px-3 py-1 text-[10px] text-white/40 uppercase tracking-wider">
-                          Quality
+                          {t("player.quality")}
                         </p>
                         {streamInfo.qualities.map((q) => (
                           <button

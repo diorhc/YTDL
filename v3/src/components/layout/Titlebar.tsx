@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Minus, Square, X, Copy } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { platform as getPlatform } from "@tauri-apps/plugin-os";
 
 interface TitleBarProps {
   platform?: string;
@@ -9,10 +10,29 @@ interface TitleBarProps {
 
 export function TitleBar({ platform }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
-  const isMac = platform === "macos";
+  const detectedPlatform = platform || (() => {
+    try {
+      return getPlatform();
+    } catch {
+      return "web";
+    }
+  })();
+
+  const isMac = detectedPlatform === "macos";
+  const isMobile = detectedPlatform === "android" || detectedPlatform === "ios";
 
   useEffect(() => {
-    const appWindow = getCurrentWindow();
+    if (isMobile || isMac) {
+      return;
+    }
+
+    let appWindow: any;
+    try {
+      appWindow = getCurrentWindow();
+    } catch {
+      // Browser fallback
+      return;
+    }
     const checkMaximized = async () => {
       const maximized = await appWindow.isMaximized();
       setIsMaximized(maximized);
@@ -25,15 +45,29 @@ export function TitleBar({ platform }: TitleBarProps) {
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten.then((fn: () => void) => fn());
     };
-  }, []);
+  }, [isMac, isMobile]);
+
+  if (isMobile) {
+    return null;
+  }
 
   if (isMac) {
     return <div className="titlebar-drag h-10" />;
   }
 
-  const appWindow = getCurrentWindow();
+  let appWindow: any = {
+    minimize: () => { },
+    toggleMaximize: () => { },
+    close: () => { }
+  };
+
+  try {
+    appWindow = getCurrentWindow();
+  } catch {
+    // Keep mock implementation for web
+  }
 
   return (
     <div className="titlebar-drag flex justify-end pt-3 pr-4">

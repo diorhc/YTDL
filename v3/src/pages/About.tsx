@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,25 +7,33 @@ import { ExternalLink, Heart, Github, RefreshCw } from "lucide-react";
 import { commands } from "@/lib/tauri";
 
 const CREDITS = [
-  { name: "Tauri", url: "https://tauri.app", role: "Framework" },
+  { name: "Tauri", url: "https://tauri.app", roleKey: "framework" },
   {
     name: "yt-dlp",
     url: "https://github.com/yt-dlp/yt-dlp",
-    role: "Download engine",
+    roleKey: "downloadEngine",
   },
-  { name: "FFmpeg", url: "https://ffmpeg.org", role: "Media processing" },
+  { name: "FFmpeg", url: "https://ffmpeg.org", roleKey: "mediaProcessing" },
   {
     name: "whisper.cpp",
     url: "https://github.com/ggerganov/whisper.cpp",
-    role: "Transcription",
+    roleKey: "transcription",
   },
-  { name: "React", url: "https://react.dev", role: "UI library" },
-  { name: "shadcn/ui", url: "https://ui.shadcn.com", role: "UI components" },
-  { name: "Tailwind CSS", url: "https://tailwindcss.com", role: "Styling" },
+  { name: "React", url: "https://react.dev", roleKey: "uiLibrary" },
+  { name: "shadcn/ui", url: "https://ui.shadcn.com", roleKey: "uiComponents" },
+  { name: "Tailwind CSS", url: "https://tailwindcss.com", roleKey: "styling" },
 ];
 
 export function AboutPage() {
   const { t } = useTranslation();
+  const [version, setVersion] = useState("3.0.0");
+
+  useEffect(() => {
+    commands
+      .getAppVersion()
+      .then(setVersion)
+      .catch(() => {});
+  }, []);
 
   const handleOpenUrl = async (url: string) => {
     try {
@@ -52,13 +61,19 @@ export function AboutPage() {
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-sm font-medium">
-                {t("about.currentVersion")}: 3.0.0
+                {t("about.currentVersion")}: {version}
               </p>
               <p className="text-xs text-muted-foreground">
                 {t("about.upToDate")}
               </p>
             </div>
-            <Button variant="outline" size="sm">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                handleOpenUrl("https://github.com/diorhc/YTDL/releases/latest")
+              }
+            >
               <RefreshCw className="w-4 h-4 mr-1.5" />
               {t("about.checkUpdate")}
             </Button>
@@ -69,7 +84,9 @@ export function AboutPage() {
         <Card>
           <CardContent className="p-0">
             <div className="p-4">
-              <p className="text-sm font-medium mb-3">{t("about.credits")}</p>
+              <p className="text-sm font-medium mb-3">
+                {t("about.credits.title")}
+              </p>
               <div className="space-y-2">
                 {CREDITS.map((c, i) => (
                   <div key={c.name}>
@@ -77,7 +94,7 @@ export function AboutPage() {
                       <div>
                         <p className="text-sm font-medium">{c.name}</p>
                         <p className="text-xs text-muted-foreground">
-                          {c.role}
+                          {t(`about.credits.${c.roleKey}`)}
                         </p>
                       </div>
                       <Button

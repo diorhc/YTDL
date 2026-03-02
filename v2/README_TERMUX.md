@@ -1,367 +1,164 @@
-# 🤖 YouTube Downloader для Android (Termux)
+# 🤖 YTDL v2 — Установка для Android (Termux)
 
-![Platform](<https://img.shields.io/badge/platform-Android%20(Termux)-green.svg>)
-![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
-
-Полнофункциональный YouTube загрузчик для Android с использованием Termux. Поддерживает веб-интерфейс и командную строку.
+[![Platform](<https://img.shields.io/badge/platform-Android%20(Termux)-green.svg>)](https://f-droid.org/packages/com.termux/)
+[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
 
 ## 📱 Требования
 
-- Android 7.0 или выше
-- [Termux](https://f-droid.org/packages/com.termux/) (рекомендуется установка из F-Droid)
-- ~500 МБ свободного места для зависимостей
+- Android 7.0+
+- [Termux](https://f-droid.org/packages/com.termux/) из **F-Droid** (не из Google Play!)
+- ~500 МБ свободного места
 - Интернет-соединение
+
+---
 
 ## 🚀 Быстрая установка
 
-### Шаг 1: Установка Termux
+### 1. Установите Termux
 
-1. Скачайте **Termux** из [F-Droid](https://f-droid.org/packages/com.termux/)
-   - ⚠️ **Не используйте версию из Google Play** (устаревшая)
-2. Откройте Termux и дождитесь инициализации
+Скачайте из [F-Droid](https://f-droid.org/packages/com.termux/) и откройте.
 
-### Шаг 2: Обновление пакетов
+### 2. Обновите пакеты
 
 ```bash
-# Обновите список пакетов
 pkg update -y && pkg upgrade -y
 ```
 
-### Шаг 3: Установка Git
+### 3. Скачайте YTDL
+
+> **Не используйте** `git clone` — скачивайте готовый релиз.
 
 ```bash
-# Установите Git
-pkg install git -y
-```
-
-### Шаг 4: Клонирование репозитория
-
-```bash
-# Перейдите в домашнюю директорию
+pkg install -y wget tar
 cd ~
-
-# Клонируйте репозиторий
-git clone https://github.com/diorhc/YTDL.git
-
-# Перейдите в директорию проекта
-cd YTDL
+wget https://github.com/diorhc/YTDL/releases/latest/download/YTDL-v2-unix.tar.gz
+tar -xzf YTDL-v2-unix.tar.gz
+cd YTDL-v2
+chmod +x launcher_termux.sh setup_termux.sh
 ```
 
-### Шаг 5: Запуск установщика
+### 4. Запустите и установите зависимости
 
 ```bash
-# Сделайте скрипт исполняемым
-chmod +x launcher_termux.sh setup_termux.sh
-
-# Запустите установщик
 ./launcher_termux.sh
 ```
 
-### Шаг 6: Установка зависимостей
+В меню выберите по порядку:
 
-В меню выберите:
+1. **Опция 3** — Install Termux Dependencies (Python, FFmpeg, numpy)
+2. **Опция 4** — Install Python Dependencies (Flask, yt-dlp, moviepy)
+3. **Опция 5** — Setup Storage Access (доступ к файлам Android)
 
-1. **Опция 3** - Install Termux Dependencies (Python, FFmpeg, numpy, etc.)
-2. **Опция 4** - Install Python Dependencies (Flask, yt-dlp, moviepy, etc.)
-3. **Опция 5** - Setup Storage Access (доступ к файлам Android)
+> **numpy** устанавливается через `pkg` (опция 3), а не через `pip`!
 
-**Важно:** numpy устанавливается через pkg (опция 3), а не через pip, так как требует компиляции!
+### 5. Запустите
+
+```bash
+./launcher_termux.sh
+# Выберите 1 — Launch Web Interface
+```
+
+Откройте в браузере: **http://localhost:5005**
+
+---
 
 ## 🎯 Использование
 
-### Веб-интерфейс (Рекомендуется)
+### Веб-интерфейс (рекомендуется)
 
 ```bash
-# Запустите launcher
 ./launcher_termux.sh
-
-# Выберите опцию 1: Launch Web Interface
+# Опция 1 → Launch Web Interface
 ```
 
-Откройте браузер на вашем Android устройстве:
-
-- **Локально**: http://localhost:5005
-- **По сети**: http://ВАШ_IP:5005 (будет показан при запуске)
+- **Локально:** http://localhost:5005
+- **По сети:** http://ВАШ_IP:5005 (показывается при запуске)
 
 ### Командная строка
 
 ```bash
-# Запустите launcher
-./launcher_termux.sh
-
-# Выберите опцию 2: Download Video (Command Line)
-# Или используйте напрямую:
-
-# Скачать лучшее качество
+# Лучшее качество
 python youtube_downloader.py "https://youtu.be/VIDEO_ID"
 
-# Скачать конкретное качество
+# Конкретное качество
 python youtube_downloader.py "https://youtu.be/VIDEO_ID" -q 720p
 
-# Скачать только аудио
+# Только аудио
 python youtube_downloader.py "https://youtu.be/VIDEO_ID" --audio-only
 ```
+
+---
 
 ## 📂 Расположение загрузок
 
 По умолчанию файлы сохраняются в:
 
-- `~/storage/downloads/YouTube` - если настроен доступ к хранилищу
-- `~/storage/shared/Download/YouTube` - альтернативная папка
-- `~/YTDL/downloads` - резервная папка
+- `~/storage/downloads/YouTube` — если настроен Storage Access
+- `~/storage/shared/Download/YouTube` — альтернатива
+- `~/YTDL-v2/downloads` — резервная папка
 
-Чтобы увидеть загруженные файлы в стандартном файловом менеджере Android, используйте **Setup Storage Access** (опция 5).
+Чтобы видеть файлы в файловом менеджере Android → используйте **Setup Storage Access** (опция 5).
 
-## 🔧 Основные команды
+---
 
-### Управление приложением
+## 🎨 Поддерживаемое качество
+
+| Качество | Разрешение | FFmpeg        |
+| -------- | ---------- | ------------- |
+| 8K       | 7680×4320  | Требуется     |
+| 4K       | 3840×2160  | Требуется     |
+| 1440p    | 2560×1440  | Требуется     |
+| 1080p    | 1920×1080  | —             |
+| 720p     | 1280×720   | —             |
+| 480p     | 854×480    | —             |
+| 360p     | 640×360    | —             |
+| Audio    | MP3        | Рекомендуется |
+
+---
+
+## 🔧 Важные команды
 
 ```bash
 # Запуск
 ./launcher_termux.sh
 
 # Обновление зависимостей
-pip install --upgrade -r requirements.txt
+python -m pip install --upgrade -r requirements.txt
 
-# ⚠️ ВАЖНО: НЕ обновляйте pip через pip в Termux!
-# pip install --upgrade pip  ❌ Это сломает python-pip пакет!
+# ⚠️ НЕ обновляйте pip через pip!
+# pip install --upgrade pip  ❌ Сломает python-pip
 # Используйте: pkg upgrade python-pip  ✅
 
-# Проверка статуса
-./launcher_termux.sh
-# Выберите опцию 7: Check Dependencies
-```
+# Проверка зависимостей
+./launcher_termux.sh  # → Опция 7
 
-### Управление Termux
-
-```bash
-# Обновление пакетов
+# Обновление Termux
 pkg update && pkg upgrade
-
-# Очистка кэша
-pkg autoclean
-
-# Информация о системе
-termux-info
 ```
-
-## ⚙️ Настройка доступа к хранилищу
-
-Для сохранения видео в общую папку загрузок Android:
-
-```bash
-# В launcher выберите опцию 5
-# Или выполните вручную:
-termux-setup-storage
-
-# Создайте символическую ссылку (опционально)
-ln -s ~/storage/downloads ~/downloads
-```
-
-После этого вы сможете видеть загруженные файлы в стандартном приложении "Файлы" Android.
-
-## 🌐 Доступ по сети
-
-Если хотите открыть веб-интерфейс на другом устройстве в той же сети Wi-Fi:
-
-1. Запустите веб-интерфейс (опция 1)
-2. Скрипт покажет сетевой адрес, например: `http://192.168.1.100:5005`
-3. Откройте этот адрес в браузере на другом устройстве (компьютер, планшет, другой телефон)
-
-## 🎨 Качество видео
-
-Поддерживаемые форматы:
-
-- **8K** (7680x4320) - требует FFmpeg
-- **4K** (3840x2160) - требует FFmpeg
-- **1440p** (2560x1440) - требует FFmpeg
-- **1080p** (1920x1080)
-- **720p** (1280x720)
-- **480p** (854x480)
-- **360p** (640x360)
-- **Audio Only** (MP3 320kbps)
-
-## 🔍 Устранение неполадок
-
-### Ошибка: "Permission denied"
-
-```bash
-# Сделайте скрипт исполняемым
-chmod +x launcher_termux.sh
-```
-
-### Ошибка: "Python not found"
-
-```bash
-# Установите Python
-pkg install python -y
-```
-
-### Ошибка: "No module named 'flask'"
-
-```bash
-# Установите зависимости Python
-pip install -r requirements.txt
-```
-
-### FFmpeg не установлен
-
-```bash
-# Установите FFmpeg для лучшего качества
-pkg install ffmpeg -y
-```
-
-### Нет доступа к файлам Android
-
-```bash
-# Настройте доступ к хранилищу
-termux-setup-storage
-# Дайте разрешение во всплывающем окне
-```
-
-### Приложение медленно работает
-
-- Закройте другие приложения для освобождения RAM
-- Используйте более низкое качество видео (720p вместо 4K)
-- Убедитесь, что у вас стабильное интернет-соединение
-
-### Ошибка при загрузке видео
-
-```bash
-# Обновите yt-dlp до последней версии
-pip install --upgrade yt-dlp
-
-# Или через launcher (опция 4)
-```
-
-### Ошибка: "Installing pip is forbidden"
-
-Эта ошибка появляется при попытке обновить pip в Termux.
-
-```bash
-# ❌ НЕ ДЕЛАЙТЕ ТАК:
-pip install --upgrade pip
-
-# ✅ ПРАВИЛЬНО - обновляйте через pkg:
-pkg upgrade python-pip
-```
-
-**Причина:** В Termux pip управляется пакетным менеджером, и его обновление через pip сломает систему.
-
-## 📋 Системные требования
-
-### Минимальные
-
-- Android 7.0+
-- 2 GB RAM
-- 500 MB свободного места
-- Wi-Fi или мобильный интернет
-
-### Рекомендуемые
-
-- Android 10.0+
-- 4 GB RAM
-- 2 GB свободного места
-- Стабильное Wi-Fi соединение
-
-## 🎯 Функции меню launcher
-
-1. **Launch Web Interface** - Запуск веб-интерфейса (порт 5005)
-2. **Download Video (Command Line)** - Загрузка через CLI
-3. **Install Termux Dependencies** - Установка системных пакетов
-4. **Install Python Dependencies** - Установка Python библиотек
-5. **Setup Storage Access** - Настройка доступа к файлам
-6. **System Information** - Информация о системе
-7. **Check Dependencies** - Проверка установленных зависимостей
-8. **Exit** - Выход
-
-## 🔄 Обновление
-
-```bash
-# Перейдите в директорию проекта
-cd ~/YTDL
-
-# Получите последние изменения
-git pull
-
-# Обновите зависимости
-pip install --upgrade -r requirements.txt
-```
-
-## 💡 Советы по использованию
-
-### Экономия батареи
-
-- Используйте более низкое качество (480p/720p)
-- Загружайте только аудио для музыки
-- Подключайтесь к зарядке при загрузке больших файлов
-
-### Экономия трафика
-
-- Используйте Wi-Fi для загрузки видео
-- Выбирайте качество 480p или ниже на мобильном интернете
-- Используйте режим "Audio Only" для музыки
-
-### Повышение скорости
-
-- Закройте фоновые приложения
-- Используйте стабильное соединение
-- Очистите кэш Termux: `pkg autoclean`
-
-## 📱 Автозапуск при открытии Termux
-
-Создайте файл `.bashrc`:
-
-```bash
-# Создайте/отредактируйте .bashrc
-nano ~/.bashrc
-
-# Добавьте строки:
-cd ~/YTDL
-./launcher_termux.sh
-
-# Сохраните: Ctrl+X, затем Y, затем Enter
-```
-
-Теперь при каждом запуске Termux будет автоматически открываться YouTube Downloader!
-
-## 🔐 Безопасность
-
-- Приложение работает локально на вашем устройстве
-- Данные не отправляются на внешние серверы
-- Веб-интерфейс доступен только в локальной сети
-- Рекомендуется использовать только в доверенных Wi-Fi сетях
-
-## ⚖️ Юридическое уведомление
-
-Этот инструмент предназначен только для образовательных и личных целей. Пожалуйста, соблюдайте Условия использования YouTube и законы об авторском праве. Загружайте только контент, на загрузку которого у вас есть разрешение.
-
-## 🆘 Получение помощи
-
-Если возникли проблемы:
-
-1. Проверьте раздел "Устранение неполадок" выше
-2. Используйте опцию 7 (Check Dependencies) в меню
-3. Создайте issue на GitHub с описанием проблемы
-4. Включите вывод команды `termux-info`
-
-## 🌟 Особенности Termux версии
-
-- ✅ Полная поддержка веб-интерфейса
-- ✅ Интеграция с файловой системой Android
-- ✅ Автоматическая настройка путей
-- ✅ Оптимизация для мобильных устройств
-- ✅ Сетевой доступ для других устройств
-- ✅ Поддержка фонового режима
-- ✅ Цветной интерактивный интерфейс
-
-## 📚 Дополнительные ресурсы
-
-- [Документация Termux](https://wiki.termux.com/)
-- [F-Droid Termux](https://f-droid.org/packages/com.termux/)
-- [Основной README](README.md)
-- [GitHub репозиторий](https://github.com/diorhc/YTDL)
 
 ---
 
-**Наслаждайтесь загрузкой видео на Android! 🎬📱**
+## 🔍 Решение проблем
+
+| Проблема                      | Решение                                                    |
+| ----------------------------- | ---------------------------------------------------------- |
+| `Permission denied`           | `chmod +x launcher_termux.sh`                              |
+| `Python not found`            | `pkg install python -y`                                    |
+| `No module named 'flask'`     | Установите через меню → опция 4                            |
+| `numpy` не ставится через pip | Используйте `pkg install python-numpy` (опция 3)           |
+| Нет доступа к хранилищу       | Опция 5 (Setup Storage Access)                             |
+| pip ошибка                    | `pkg upgrade python-pip` (не `pip install --upgrade pip`!) |
+
+---
+
+## 🌐 Доступ по сети
+
+Чтобы открыть веб-интерфейс на другом устройстве в той же Wi-Fi сети:
+
+1. Запустите веб-интерфейс (опция 1)
+2. Скрипт покажет сетевой адрес: `http://192.168.x.x:5005`
+3. Откройте этот адрес на другом устройстве
+
+---
+
+[⬅️ Назад к README](README.md)

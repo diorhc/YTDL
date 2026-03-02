@@ -1,5 +1,8 @@
 /src/main/java/com/ytdl/desktop/generated
-/src/main/jniLibs/**/*.so
+# Ignore auto-generated Tauri native library (built during compilation)
+/src/main/jniLibs/**/libytdl_lib.so
+/src/main/jniLibs/**/libc++_shared.so
+# Keep libytdlp.so, libffmpeg.so, libffprobe.so (bundled tools)
 /src/main/assets/tauri.conf.json
 /tauri.build.gradle.kts
 /proguard-tauri.pro

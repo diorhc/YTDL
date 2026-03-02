@@ -1,29 +1,130 @@
-<div align="center" style="text-align:center">
+<div align="center">
 
-# YTDL v2
+# YTDL
 
-![Demo (screenshot)](https://i.imgur.com/pAeRvcz.png)
+**Мощный загрузчик видео с YouTube, VK, Dzen, Rutube и других платформ.**
 
-[![Python](https://img.shields.io/badge/python-3.8+-blue.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Flask](https://img.shields.io/badge/flask-web%20interface-green.svg?style=for-the-badge&logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge)](v2/LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/diorhc/YTDL?style=for-the-badge)](https://github.com/diorhc/YTDL/releases)
 
 </div>
 
-<div align="center" style="text-align:center">
+---
 
-# YTDL v3
+## 📦 Два варианта
 
-![Demo (screenshot)](https://i.imgur.com/Y8KGMg6.png)
+Этот проект имеет две версии. Выберите подходящую и скачайте со страницы [**Releases**](https://github.com/diorhc/YTDL/releases).
 
-[![Tauri v2](https://img.shields.io/badge/Tauri-2.0-FFC131?style=for-the-badge&logo=tauri&logoColor=white)](https://tauri.app/)
-[![React 19](https://img.shields.io/badge/React-19.0-61DAFB?style=for-the-badge&logo=react&logoColor=white)](https://react.dev/)
-[![Tailwind](https://img.shields.io/badge/Tailwind-3.4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
-[![Rust Engine](https://img.shields.io/badge/Rust-1.75+-000000?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### YTDL v2 — Web
+
+![v2 Screenshot](https://i.imgur.com/pAeRvcz.png)
+
+**Python + Flask веб-интерфейс**
+
+- Работает в браузере (localhost:5005)
+- Windows, macOS, Linux, Android (Termux)
+- Не требует установки — запустите лаунчер
+- Командная строка + веб-интерфейс
+
+| Платформа  | Файл                  |
+| ---------- | --------------------- |
+| 🖥️ Windows | `YTDL-v2-windows.zip` |
+| 🐧 Linux   | `YTDL-v2-unix.tar.gz` |
+| 🍎 macOS   | `YTDL-v2-unix.tar.gz` |
+| 🤖 Android | `YTDL-v2-unix.tar.gz` |
+
+📖 [Документация v2](v2/README.md)
+
+</td>
+<td width="50%" valign="top">
+
+### YTDL v3 — Desktop App
+
+![v3 Screenshot](https://i.imgur.com/Y8KGMg6.png)
+
+**Tauri v2 + React 19 + Rust**
+
+- Нативное десктопное приложение
+- Windows, macOS, Linux, Android
+- Whisper AI транскрипция
+- RSS авто-синхронизация
+
+| Платформа  | Файл                 |
+| ---------- | -------------------- |
+| 🖥️ Windows | `.msi` / `.exe`      |
+| 🐧 Linux   | `.deb` / `.AppImage` |
+| 🍎 macOS   | `.dmg`               |
+| 🤖 Android | `.apk`               |
+
+📖 [Документация v3](v3/README.md)
+
+</td>
+</tr>
+</table>
+
+---
+
+## 📥 Установка
+
+> **Не используйте** `git clone` для установки. Скачивайте готовые релизы.
+
+### Шаг 1: Перейдите на [Releases](https://github.com/diorhc/YTDL/releases)
+
+### Шаг 2: Скачайте нужную версию
+
+- **v2** — `.zip` (Windows) или `.tar.gz` (Linux, macOS, Android)
+- **v3** — установщик для вашей ОС
+
+### Шаг 3: Распакуйте и запустите
+
+**v2 (Windows):**
+
+```
+Распакуйте YTDL-v2-windows.zip → запустите launcher.bat → выберите Setup → Launch
+```
+
+**v2 (Linux/macOS):**
+
+```bash
+tar -xzf YTDL-v2-unix.tar.gz && cd YTDL-v2
+chmod +x launcher.sh && ./launcher.sh
+```
+
+**v3:** Запустите установщик для вашей платформы.
+
+---
+
+## ✨ Возможности
+
+| Функция                 | v2  | v3  |
+| ----------------------- | :-: | :-: |
+| Загрузка видео до 8K    | ✅  | ✅  |
+| Аудио MP3               | ✅  | ✅  |
+| Веб-интерфейс           | ✅  |  —  |
+| Нативное приложение     |  —  | ✅  |
+| Обрезка видео           | ✅  | ✅  |
+| Whisper AI транскрипция |  —  | ✅  |
+| RSS авто-синхронизация  |  —  | ✅  |
+| Android (Termux)        | ✅  |  —  |
+| Android (APK)           |  —  | ✅  |
+| Не требует установки    | ✅  |  —  |
+
+---
+
+## 🔒 Безопасность
+
+Все данные обрабатываются локально. Никакой телеметрии.
+
+---
 
 <div align="center">
 
 Made with ❤️ by [diorhc](https://github.com/diorhc)
 
-</div>
+⭐ Поставьте звезду, если проект полезен!
 
 </div>

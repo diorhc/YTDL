@@ -4,6 +4,7 @@ import type {
   AppSettings,
   RssFeed,
   VideoInfo,
+  TranscriptItem,
 } from "@/lib/tauri";
 
 // ─── Download State ─────────────────────────────────────
@@ -45,18 +46,6 @@ export const settingsAtom = atom<AppSettings>({
 export const settingsLoadedAtom = atom(false);
 
 // ─── Transcription state ────────────────────────────────
-export interface TranscriptItem {
-  id: string;
-  title: string;
-  source: "url" | "file";
-  status: "pending" | "processing" | "completed" | "error";
-  progress: number;
-  text?: string;
-  language?: string;
-  duration?: string;
-  createdAt: string;
-  error?: string;
-}
 export const transcriptsAtom = atom<TranscriptItem[]>([]);
 
 // ─── Platform ───────────────────────────────────────────

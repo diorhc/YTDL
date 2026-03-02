@@ -10,7 +10,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 PYTHON_CMD=""
-PIP_CMD=""
 FFMPEG_CMD=""
 
 # === COLOR CODES ===
@@ -68,17 +67,21 @@ detect_python() {
 }
 
 detect_pip() {
-    if command -v pip3 &> /dev/null; then
-        PIP_CMD="pip3"
-    elif command -v pip &> /dev/null; then
-        PIP_CMD="pip"
-    else
-        print_warning "pip not found. Installing pip..."
-        pkg install python-pip -y
-        PIP_CMD="pip"
+    detect_python
+
+    if "$PYTHON_CMD" -m pip --version &> /dev/null; then
+        print_success "pip found via: $PYTHON_CMD -m pip"
+        return
     fi
-    
-    print_success "pip found: $PIP_CMD"
+
+    print_warning "pip module not found for $PYTHON_CMD. Installing python-pip via pkg..."
+    pkg install python-pip -y
+
+    if "$PYTHON_CMD" -m pip --version &> /dev/null; then
+        print_success "pip found via: $PYTHON_CMD -m pip"
+    else
+        print_error "pip is still unavailable. Run: pkg reinstall python python-pip"
+    fi
 }
 
 detect_ffmpeg() {
@@ -134,16 +137,19 @@ install_python_dependencies() {
     
     # Install packages one by one to handle errors better
     print_info "Installing Flask..."
-    $PIP_CMD install Flask waitress || print_warning "Flask installation had issues, continuing..."
+    "$PYTHON_CMD" -m pip install Flask waitress || print_warning "Flask installation had issues, continuing..."
     
     print_info "Installing yt-dlp..."
-    $PIP_CMD install yt-dlp || print_warning "yt-dlp installation had issues, continuing..."
+    "$PYTHON_CMD" -m pip install yt-dlp || print_warning "yt-dlp installation had issues, continuing..."
     
     print_info "Installing moviepy (may take a while)..."
-    $PIP_CMD install moviepy || print_warning "moviepy installation had issues, continuing..."
+    "$PYTHON_CMD" -m pip install moviepy || print_warning "moviepy installation had issues, continuing..."
     
     print_info "Installing colorama..."
-    $PIP_CMD install colorama || print_warning "colorama installation had issues, continuing..."
+    "$PYTHON_CMD" -m pip install colorama || print_warning "colorama installation had issues, continuing..."
+
+    print_info "If you see 'Installing pip is forbidden', do NOT run pip self-upgrade."
+    print_info "Use: pkg upgrade python-pip"
     
     print_success "Python dependencies installed!"
     print_info "Note: numpy was installed via pkg (system package)"
@@ -329,8 +335,8 @@ check_dependencies() {
     fi
     
     # Check pip
-    if command -v pip &> /dev/null; then
-        print_success "pip: $(pip --version | cut -d' ' -f2)"
+    if command -v python &> /dev/null && python -m pip --version &> /dev/null; then
+        print_success "pip: $(python -m pip --version | cut -d' ' -f2)"
     else
         print_error "pip: Not installed"
     fi
@@ -352,10 +358,10 @@ check_dependencies() {
     # Check Python packages
     echo ""
     echo -e "${BOLD}Python Packages:${RESET}"
-    if command -v pip &> /dev/null; then
+    if command -v python &> /dev/null && python -m pip --version &> /dev/null; then
         for pkg in flask yt-dlp moviepy waitress; do
-            if pip show "$pkg" &> /dev/null; then
-                version=$(pip show "$pkg" | grep Version | cut -d' ' -f2)
+            if python -m pip show "$pkg" &> /dev/null; then
+                version=$(python -m pip show "$pkg" | grep Version | cut -d' ' -f2)
                 print_success "$pkg: $version"
             else
                 print_warning "$pkg: Not installed"

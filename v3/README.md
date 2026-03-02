@@ -3,6 +3,7 @@
 ![Demo (screenshot)](https://i.imgur.com/Y8KGMg6.png)
 
 # YTDL v3
+
 ### Next-Gen Cross-Platform Media Engine
 
 [![Tauri v2](https://img.shields.io/badge/Tauri-2.0-FFC131?style=for-the-badge&logo=tauri&logoColor=white)](https://tauri.app/)
@@ -46,11 +47,13 @@ v3/
 ## 🛠 Development Workflow
 
 ### Prerequisites
+
 - [Rust](https://www.rust-lang.org/tools/install)
 - [Node.js](https://nodejs.org/) (v18+)
 - [Tauri CLI](https://v2.tauri.app/start/prerequisites/)
 
 ### Setup & Run
+
 ```bash
 # Install dependencies
 npm install
@@ -60,6 +63,7 @@ npm run tauri dev
 ```
 
 ### Build for Production
+
 ```bash
 # Build desktop app
 npm run tauri build
@@ -68,13 +72,26 @@ npm run tauri build
 npm run tauri android build
 ```
 
+## 📥 Установка (для пользователей)
+
+> **Не используйте** `git clone` — скачивайте готовые релизы.
+
+Перейдите на [**Releases**](https://github.com/diorhc/YTDL/releases) и скачайте установщик для вашей платформы:
+
+| Платформа  | Формат               |
+| ---------- | -------------------- |
+| 🖥️ Windows | `.msi` / `.exe`      |
+| 🐧 Linux   | `.deb` / `.AppImage` |
+| 🍎 macOS   | `.dmg`               |
+| 🤖 Android | `.apk`               |
+
 ## ✨ Advanced Features
 
-| Feature | Description | Status |
-| :--- | :--- | :---: |
-| **Whisper AI** | High-precision audio-to-text transcription | ✅ |
-| **RSS Auto-Sync** | Background fetching of media feeds | ✅ |
-| **Mobile Optimized** | Full responsive support for iOS/Android | ✅ |
+| Feature              | Description                                | Status |
+| :------------------- | :----------------------------------------- | :----: |
+| **Whisper AI**       | High-precision audio-to-text transcription |   ✅   |
+| **RSS Auto-Sync**    | Background fetching of media feeds         |   ✅   |
+| **Mobile Optimized** | Full responsive support for iOS/Android    |   ✅   |
 
 ---
 

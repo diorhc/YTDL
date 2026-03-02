@@ -13,12 +13,14 @@ export function useSettings() {
   const { i18n } = useTranslation();
   const initialized = useRef(false);
 
+  const downloadPathRef = useRef(settings.downloadPath);
+
   const loadSettings = useCallback(async () => {
     try {
       const raw = await commands.getSettings();
       const s = {
         downloadPath:
-          raw.download_path || raw.downloadPath || settings.downloadPath,
+          raw.download_path || raw.downloadPath || downloadPathRef.current,
         maxConcurrentDownloads: parseInt(
           raw.max_concurrent_downloads || "3",
           10,
@@ -48,6 +50,7 @@ export function useSettings() {
         rssAutoDownload: raw.rss_auto_download === "true",
       };
       setSettings(s);
+      downloadPathRef.current = s.downloadPath;
       setTheme(s.theme);
       if (s.language !== i18n.language) {
         i18n.changeLanguage(s.language);
@@ -56,7 +59,7 @@ export function useSettings() {
     } catch (err) {
       console.error("Failed to load settings:", err);
     }
-  }, [setSettings, setLoaded, setTheme, i18n, settings.downloadPath]);
+  }, [setSettings, setLoaded, setTheme, i18n]);
 
   useEffect(() => {
     if (initialized.current) return;
@@ -93,9 +96,37 @@ export function useSettings() {
         };
         const attrKey = keyMap[key];
         if (attrKey) {
+          // Convert raw string to the correct type expected by AppSettings
+          const numericKeys = new Set([
+            "maxConcurrentDownloads",
+            "speedLimit",
+            "rssCheckInterval",
+          ]);
+          const booleanTrueKeys = new Set([
+            "autoStartDownloads",
+            "notifications",
+            "rssNotifications",
+            "embedThumbnail",
+            "embedMetadata",
+          ]);
+          const booleanFalseKeys = new Set([
+            "closeToTray",
+            "autoLaunch",
+            "rssAutoDownload",
+          ]);
+
+          let typed: string | number | boolean = value;
+          if (numericKeys.has(attrKey)) {
+            typed = parseInt(value, 10) || 0;
+          } else if (booleanTrueKeys.has(attrKey)) {
+            typed = value !== "false";
+          } else if (booleanFalseKeys.has(attrKey)) {
+            typed = value === "true";
+          }
+
           setSettings((prev: typeof settings) => ({
             ...prev,
-            [attrKey]: value,
+            [attrKey]: typed,
           }));
         }
       } catch (err) {

@@ -11,7 +11,13 @@ impl Database {
     pub fn new(path: &Path) -> AppResult<Self> {
         println!("[DB] Opening database at: {:?}", path);
         let conn = Connection::open(path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;\
+             PRAGMA foreign_keys=ON;\
+             PRAGMA synchronous=NORMAL;\
+             PRAGMA cache_size=-4000;\
+             PRAGMA busy_timeout=5000;",
+        )?;
         Ok(Self { conn })
     }
 
@@ -94,6 +100,11 @@ impl Database {
                 value TEXT NOT NULL
             );
 
+            -- Schema version tracking (Issue #14)
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER NOT NULL
+            );
+
             -- Default settings
             INSERT OR IGNORE INTO settings (key, value) VALUES ('theme', 'system');
             INSERT OR IGNORE INTO settings (key, value) VALUES ('language', 'en');
@@ -112,33 +123,29 @@ impl Database {
             INSERT OR IGNORE INTO settings (key, value) VALUES ('whisper_model_path', '');
             ",
         )?;
+
+        // Versioned migrations — each only runs once (Issue #14)
+        let current_version = self.get_schema_version();
         
-        // Migrations: Add video_type column if it doesn't exist
-        // This is safe to run multiple times
-        match self.conn.execute(
-            "ALTER TABLE feed_items ADD COLUMN video_type TEXT DEFAULT 'video'",
-            [],
-        ) {
-            Ok(_) => println!("[DB] Added video_type column to feed_items"),
-            Err(e) => println!("[DB] video_type column already exists or error: {}", e),
+        if current_version < 1 {
+            // Migration 1: Add video_type column to feed_items
+            let _ = self.conn.execute(
+                "ALTER TABLE feed_items ADD COLUMN video_type TEXT DEFAULT 'video'", []);
+            let _ = self.conn.execute(
+                "ALTER TABLE feed_items ADD COLUMN thumbnail TEXT DEFAULT ''", []);
+            let _ = self.conn.execute(
+                "ALTER TABLE feed_items ADD COLUMN url TEXT DEFAULT ''", []);
+            self.set_schema_version(1);
+        }
+        
+        if current_version < 2 {
+            // Migration 2: Add source column to downloads
+            let _ = self.conn.execute(
+                "ALTER TABLE downloads ADD COLUMN source TEXT DEFAULT 'single'", []);
+            self.set_schema_version(2);
         }
 
-        // Legacy schema compatibility migrations for feed_items
-        match self.conn.execute(
-            "ALTER TABLE feed_items ADD COLUMN thumbnail TEXT DEFAULT ''",
-            [],
-        ) {
-            Ok(_) => println!("[DB] Added thumbnail column to feed_items"),
-            Err(e) => println!("[DB] thumbnail column already exists or error: {}", e),
-        }
-        match self.conn.execute(
-            "ALTER TABLE feed_items ADD COLUMN url TEXT DEFAULT ''",
-            [],
-        ) {
-            Ok(_) => println!("[DB] Added url column to feed_items"),
-            Err(e) => println!("[DB] url column already exists or error: {}", e),
-        }
-
+        // Indexes (idempotent — CREATE IF NOT EXISTS)
         self.conn.execute_batch(
             "
             CREATE INDEX IF NOT EXISTS idx_feed_items_feed_id_published
@@ -149,19 +156,24 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_feeds_created_at
             ON feeds(created_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_downloads_url_format
+            ON downloads(url, format_id);
             ",
         )?;
-
-        // Migration: Add source column to downloads table
-        match self.conn.execute(
-            "ALTER TABLE downloads ADD COLUMN source TEXT DEFAULT 'single'",
-            [],
-        ) {
-            Ok(_) => println!("[DB] Added source column to downloads"),
-            Err(e) => println!("[DB] source column already exists or error: {}", e),
-        }
         
         Ok(())
+    }
+
+    fn get_schema_version(&self) -> i32 {
+        self.conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get(0))
+            .unwrap_or(0)
+    }
+
+    fn set_schema_version(&self, version: i32) {
+        let _ = self.conn.execute("DELETE FROM schema_version", []);
+        let _ = self.conn.execute("INSERT INTO schema_version (version) VALUES (?1)", params![version]);
     }
 
     // --- Downloads ---
@@ -231,9 +243,21 @@ impl Database {
     }
 
     pub fn update_download_error(&self, id: &str, error: &str) -> AppResult<()> {
+        // Don't overwrite "paused" or "cancelled" status — those are user-initiated
+        // and must be preserved so "Resume All" can find paused downloads.
         self.conn.execute(
-            "UPDATE downloads SET status = 'error', error = ?2, updated_at = datetime('now') WHERE id = ?1",
+            "UPDATE downloads SET status = 'error', error = ?2, updated_at = datetime('now') WHERE id = ?1 AND status NOT IN ('paused', 'cancelled')",
             params![id, error],
+        )?;
+        Ok(())
+    }
+
+    /// Update the title and thumbnail for a download (used by Termux poller
+    /// after extracting metadata from .info.json).
+    pub fn update_download_metadata(&self, id: &str, title: &str, thumbnail: &str) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE downloads SET title = ?2, thumbnail = ?3, updated_at = datetime('now') WHERE id = ?1",
+            params![id, title, thumbnail],
         )?;
         Ok(())
     }
@@ -292,6 +316,17 @@ impl Database {
         Ok(result)
     }
 
+    /// Check if a download with the given URL and format already exists with an active status.
+    /// Returns the status string if a duplicate is found, None otherwise.
+    /// This is O(1) via SQL instead of loading all rows (Issue #15).
+    pub fn download_exists_by_url(&self, url: &str, format_id: &str) -> AppResult<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT status FROM downloads WHERE url = ?1 AND COALESCE(format_id, '') = ?2 AND status IN ('completed', 'downloading', 'queued') LIMIT 1"
+        )?;
+        let result = stmt.query_row(params![url, format_id], |row| row.get::<_, String>(0)).ok();
+        Ok(result)
+    }
+
     // --- Settings ---
 
     pub fn get_setting(&self, key: &str) -> AppResult<Option<String>> {
@@ -334,6 +369,35 @@ impl Database {
     }
 
     pub fn get_feeds(&self) -> AppResult<Vec<serde_json::Value>> {
+        // Batch-load all feed items to avoid N+1 queries
+        let mut items_map: std::collections::HashMap<String, Vec<serde_json::Value>> =
+            std::collections::HashMap::new();
+        {
+            let mut items_stmt = self.conn.prepare(
+                "SELECT id, feed_id, video_id, title, thumbnail, url, published_at, downloaded, video_type FROM feed_items ORDER BY published_at DESC"
+            )?;
+            let item_rows = items_stmt.query_map([], |row| {
+                let feed_id: String = row.get(1)?;
+                let downloaded_raw: i64 = row.get::<_, i64>(7).unwrap_or(0);
+                let item = serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "videoId": row.get::<_, String>(2)?,
+                    "title": row.get::<_, String>(3)?,
+                    "thumbnail": row.get::<_, String>(4)?,
+                    "url": row.get::<_, String>(5)?,
+                    "publishedAt": row.get::<_, String>(6)?,
+                    "status": if downloaded_raw != 0 { "downloaded" } else { "not_queued" },
+                    "videoType": row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "video".to_string()),
+                });
+                Ok((feed_id, item))
+            })?;
+            for row in item_rows {
+                if let Ok((feed_id, item)) = row {
+                    items_map.entry(feed_id).or_default().push(item);
+                }
+            }
+        }
+
         let mut stmt = self.conn.prepare(
             "SELECT id, url, title, channel_name, thumbnail, auto_download, keywords, last_checked, created_at FROM feeds ORDER BY created_at DESC"
         )?;
@@ -363,8 +427,7 @@ impl Database {
                 last_checked,
                 created_at,
             ) = row?;
-            // Get items for this feed
-            let items = self.get_feed_items(&id).unwrap_or_default();
+            let items = items_map.remove(&id).unwrap_or_default();
             result.push(serde_json::json!({
                 "id": id,
                 "url": url,
@@ -454,6 +517,7 @@ impl Database {
         );
 
         if result.is_err() {
+                        eprintln!("[DB] insert_feed_item full-schema failed: {:?}, trying fallback without video_type", result.as_ref().err());
                         let fallback_with_thumb_url = self.conn.execute(
                                 "INSERT INTO feed_items (id, feed_id, video_id, title, thumbnail, url, published_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
                                  ON CONFLICT(id) DO UPDATE SET \
@@ -467,6 +531,7 @@ impl Database {
             );
 
             if fallback_with_thumb_url.is_err() {
+                                eprintln!("[DB] insert_feed_item fallback (7-col) also failed: {:?}, trying minimal insert", fallback_with_thumb_url.as_ref().err());
                                 self.conn.execute(
                                         "INSERT INTO feed_items (id, feed_id, video_id, title, published_at) VALUES (?1, ?2, ?3, ?4, ?5) \
                                          ON CONFLICT(id) DO UPDATE SET \
@@ -479,6 +544,18 @@ impl Database {
             }
         }
         Ok(())
+    }
+
+    /// Check if a feed item exists by ID
+    pub fn feed_item_exists(&self, id: &str) -> bool {
+        self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM feed_items WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|count| count > 0)
+            .unwrap_or(false)
     }
 
     pub fn get_feed_items(&self, feed_id: &str) -> AppResult<Vec<serde_json::Value>> {

@@ -104,7 +104,7 @@ export function SupportedSitesPage() {
         )}
 
         <div className="mt-6 text-center text-sm text-muted-foreground">
-          <Badge variant="outline">1000+</Badge> sites supported via yt-dlp
+          <Badge variant="outline">1000+</Badge> {t("supported.footer")}
         </div>
       </ScrollArea>
     </div>

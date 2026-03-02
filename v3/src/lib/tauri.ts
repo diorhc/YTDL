@@ -148,17 +148,32 @@ export interface AppSettings {
 }
 
 // --- Transcript types ---
+/** Raw transcript item as returned by the Rust backend */
+export interface RawTranscriptItem {
+  id?: string;
+  title?: string;
+  source?: string;
+  status?: string;
+  progress?: number;
+  text?: string;
+  language?: string;
+  durationSecs?: number;
+  createdAt?: string;
+  error?: string;
+}
+
+/** Normalised transcript item used throughout the UI */
 export interface TranscriptItem {
   id: string;
-  source: string;
   title: string;
-  language: string;
-  text: string;
-  status: string;
+  source: "url" | "file";
+  status: "pending" | "processing" | "completed" | "error";
   progress: number;
-  durationSecs: number;
-  error: string;
+  text?: string;
+  language?: string;
+  duration?: string;
   createdAt: string;
+  error?: string;
 }
 
 // --- Tauri commands ---
@@ -217,7 +232,7 @@ export const commands = {
   // Transcription commands
   startTranscription: (source: string, modelSize?: string) =>
     invoke<string>("start_transcription", { source, modelSize }),
-  getTranscripts: () => invoke<TranscriptItem[]>("get_transcripts"),
+  getTranscripts: () => invoke<RawTranscriptItem[]>("get_transcripts"),
   deleteTranscript: (id: string) => invoke<void>("delete_transcript", { id }),
   checkOpenaiTranscriptionApi: (apiKey: string, model: string) =>
     invoke<{ ok: boolean; model: string }>("check_openai_transcription_api", {
@@ -235,6 +250,7 @@ export const commands = {
   // App commands
   getPlatform: () => invoke<string>("get_platform"),
   getAppVersion: () => invoke<string>("get_app_version"),
+  getBinaryInfo: () => invoke<Record<string, unknown>>("get_binary_info"),
   openExternal: (url: string) => invoke<void>("open_external", { url }),
   openPath: (path: string) => invoke<void>("open_path", { path }),
   checkYtdlp: () => invoke<boolean>("check_ytdlp"),
@@ -251,6 +267,32 @@ export const commands = {
   // Priority commands
   setDownloadPriority: (downloadId: string, priority: number) =>
     invoke<void>("set_download_priority", { downloadId, priority }),
+
+  // Android / Termux commands
+  getAndroidInfo: () =>
+    invoke<{
+      platform: string;
+      termuxInstalled: boolean;
+      termuxHasPermission: boolean;
+      hasStoragePermission: boolean;
+      nativeLibDir: string;
+      bundledYtdlpWorks: boolean;
+      bundledFfmpegWorks: boolean;
+    }>("get_android_info"),
+  openTermux: () => invoke<void>("open_termux"),
+  openTermuxInstallPage: () => invoke<void>("open_termux_install_page"),
+  launchTermuxSetup: () => invoke<boolean>("launch_termux_setup"),
+  termuxDownload: (url: string, formatId?: string) =>
+    invoke<string>("termux_download", { url, formatId }),
+  requestStoragePermission: () => invoke<boolean>("request_storage_permission"),
+  probeYtdlp: () =>
+    invoke<{
+      strategy: string;
+      path: string;
+      version?: string;
+      works: boolean;
+      error?: string;
+    }>("probe_ytdlp"),
 };
 
 // --- Events ---

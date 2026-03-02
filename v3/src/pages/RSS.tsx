@@ -34,7 +34,6 @@ import {
   Trash2,
   Loader2,
   Download,
-  CircleDot,
   DownloadCloud,
   Play,
   Smartphone,
@@ -161,12 +160,12 @@ export function RssPage() {
     if (selectedFeedId) {
       return selectedFeed?.channelName || selectedFeed?.title || "Channel";
     }
-    if (authorFilterId === "all") return "All authors";
+    if (authorFilterId === "all") return t("rss.allAuthors");
     return (
       authorOptions.find((option) => option.id === authorFilterId)?.name ||
-      "All authors"
+      t("rss.allAuthors")
     );
-  }, [authorFilterId, authorOptions, selectedFeed, selectedFeedId]);
+  }, [authorFilterId, authorOptions, selectedFeed, selectedFeedId, t]);
 
   // Counts for filter badges
   const typeCounts = useMemo(() => {
@@ -197,16 +196,17 @@ export function RssPage() {
       }
     });
 
-    if (started > 0) toast.success(`Started ${started} downloads`);
+    if (started > 0)
+      toast.success(t("rss.startedDownloads", { count: started }));
   };
 
   const handleRefreshAll = async () => {
     try {
       toast.info(t("rss.checkNow") + "...");
       const count = await commands.checkAllRssFeeds();
-      toast.success(`Updated ${count} feeds`);
+      toast.success(t("rss.updatedFeeds", { count }));
     } catch (err) {
-      toast.error(`Failed to refresh: ${err}`);
+      toast.error(t("rss.refreshFailed", { error: String(err) }));
     }
   };
 
@@ -224,12 +224,14 @@ export function RssPage() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full bg-background">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4">
+        <div className="flex items-center justify-between px-4 sm:px-6 pt-6 pb-2 sm:pb-4">
           <div>
-            <h1 className="text-2xl font-bold">{t("rss.title")}</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+              {t("rss.title")}
+            </h1>
+            <p className="text-sm text-muted-foreground font-medium mt-1">
               {t("rss.subtitle")}
             </p>
           </div>
@@ -239,40 +241,42 @@ export function RssPage() {
                 <Button
                   variant="outline"
                   size="icon"
-                  className="h-9 w-9"
+                  className="h-10 w-10 sm:h-11 sm:w-11 rounded-full shadow-sm border-border/50 hover:bg-muted"
                   onClick={handleRefreshAll}
                 >
-                  <RefreshCw className="w-4 h-4" />
+                  <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Refresh all feeds</TooltipContent>
+              <TooltipContent>{t("rss.refreshAll")}</TooltipContent>
             </Tooltip>
           )}
         </div>
 
         {/* Channel Tabs */}
-        <div className="px-6 pb-4">
-          <ScrollArea className="rss-channel-scroll w-full whitespace-nowrap py-1">
-            <div className="flex items-center gap-3">
+        <div className="px-4 sm:px-6 pb-2">
+          <ScrollArea className="w-full whitespace-nowrap pb-3 scrollbar-hide">
+            <div className="flex items-start gap-4 sm:gap-5">
               {/* All feeds tab */}
               <button
                 onClick={() => setSelectedFeedId(null)}
-                className={`flex flex-col items-center gap-1.5 min-w-[60px] transition-all ${
+                className={`flex flex-col items-center gap-2 min-w-[64px] transition-all group ${
                   !selectedFeedId
-                    ? "opacity-100"
-                    : "opacity-50 hover:opacity-80"
+                    ? "opacity-100 scale-100"
+                    : "opacity-60 hover:opacity-100 scale-95 hover:scale-100"
                 }`}
               >
                 <div
-                  className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                  className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center transition-all shadow-sm ${
                     !selectedFeedId
-                      ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-2 ring-offset-background"
-                      : "bg-muted"
+                      ? "bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-primary/20"
+                      : "bg-muted/50 border border-white/5 group-hover:bg-muted"
                   }`}
                 >
-                  <RssIcon className="w-5 h-5" />
+                  <RssIcon
+                    className={`w-6 h-6 ${!selectedFeedId ? "text-white" : "text-muted-foreground"}`}
+                  />
                 </div>
-                <span className="text-[10px] font-medium truncate max-w-[60px]">
+                <span className="text-[11px] font-semibold truncate w-full text-center px-1">
                   {t("download.all")}
                 </span>
               </button>
@@ -296,54 +300,71 @@ export function RssPage() {
               {/* Add channel button */}
               <button
                 onClick={() => setShowAddDialog(true)}
-                className="flex flex-col items-center gap-1.5 min-w-[60px] opacity-50 hover:opacity-80 transition-all"
+                className="flex flex-col items-center gap-2 min-w-[64px] opacity-60 hover:opacity-100 transition-all group scale-95 hover:scale-100"
               >
-                <div className="w-12 h-12 rounded-full border-2 border-dashed border-muted-foreground/30 flex items-center justify-center hover:border-primary/50 transition-colors">
-                  <Plus className="w-5 h-5 text-muted-foreground" />
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-dashed border-muted-foreground/30 flex items-center justify-center group-hover:border-primary/50 group-hover:bg-primary/5 transition-all">
+                  <Plus className="w-6 h-6 text-muted-foreground group-hover:text-primary transition-colors" />
                 </div>
-                <span className="text-[10px] font-medium text-muted-foreground">
+                <span className="text-[11px] font-semibold text-muted-foreground group-hover:text-primary transition-colors">
                   {t("common.add")}
                 </span>
               </button>
             </div>
-            <ScrollBar orientation="horizontal" />
+            <ScrollBar orientation="horizontal" className="hidden" />
           </ScrollArea>
         </div>
 
         {/* Content area */}
-        <ScrollArea className="flex-1 px-6">
+        <ScrollArea className="flex-1 px-4 sm:px-6">
           {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="w-10 h-10 animate-spin text-muted-foreground/50" />
             </div>
           ) : feeds.length === 0 ? (
             <EmptyState onAdd={() => setShowAddDialog(true)} />
           ) : selectedFeed ? (
             <>
               {/* Filter tabs + bulk action */}
-              <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-2 flex-wrap">
+              <div className="mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide w-full sm:w-auto">
                   {!selectedFeedId && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" className="gap-2">
-                          <Filter className="w-3.5 h-3.5" />
-                          {selectedAuthorLabel}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-9 rounded-xl shadow-sm text-xs font-medium border-border/50 shrink-0"
+                        >
+                          <Filter className="w-3.5 h-3.5 mr-2" />
+                          <span className="truncate max-w-[120px]">
+                            {selectedAuthorLabel}
+                          </span>
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" sideOffset={6}>
+                      <DropdownMenuContent
+                        align="start"
+                        sideOffset={8}
+                        className="rounded-xl shadow-md"
+                      >
                         <DropdownMenuItem
                           onClick={() => setAuthorFilterId("all")}
+                          className="rounded-lg"
                         >
-                          All authors
+                          {t("rss.allAuthors")}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         {authorOptions.map((option) => (
                           <DropdownMenuItem
                             key={option.id}
                             onClick={() => setAuthorFilterId(option.id)}
+                            className="rounded-lg"
                           >
-                            {option.name} ({option.count})
+                            <span className="truncate max-w-[200px]">
+                              {option.name}
+                            </span>
+                            <span className="ml-auto text-xs text-muted-foreground">
+                              ({option.count})
+                            </span>
                           </DropdownMenuItem>
                         ))}
                       </DropdownMenuContent>
@@ -355,34 +376,48 @@ export function RssPage() {
                     onValueChange={(v) =>
                       setVideoTypeFilter(v as "all" | "video" | "short")
                     }
+                    className="shrink-0"
                   >
-                    <TabsList>
-                      <TabsTrigger value="all" className="gap-1.5">
-                        <Filter className="w-3.5 h-3.5" />
-                        All
+                    <TabsList className="bg-background/80 border border-border/50 rounded-xl h-9 inline-flex p-1 shadow-sm">
+                      <TabsTrigger
+                        value="all"
+                        className="rounded-lg text-xs px-2 sm:px-3 data-[state=active]:shadow-sm gap-1.5"
+                      >
+                        <Filter className="w-3 h-3" />
+                        <span>{t("download.all")}</span>
                         <Badge
                           variant="secondary"
-                          className="ml-1 h-5 px-1.5 text-[10px]"
+                          className="ml-0.5 h-4 px-1 text-[9px] bg-muted/50"
                         >
                           {typeCounts.all}
                         </Badge>
                       </TabsTrigger>
-                      <TabsTrigger value="video" className="gap-1.5">
+                      <TabsTrigger
+                        value="video"
+                        className="rounded-lg text-xs px-2 sm:px-3 data-[state=active]:shadow-sm gap-1.5"
+                      >
                         <Video className="w-3.5 h-3.5" />
-                        Videos
+                        <span className="hidden sm:inline">
+                          {t("rss.videos")}
+                        </span>
                         <Badge
                           variant="secondary"
-                          className="ml-1 h-5 px-1.5 text-[10px]"
+                          className="ml-0.5 h-4 px-1 text-[9px] bg-muted/50"
                         >
                           {typeCounts.video}
                         </Badge>
                       </TabsTrigger>
-                      <TabsTrigger value="short" className="gap-1.5">
+                      <TabsTrigger
+                        value="short"
+                        className="rounded-lg text-xs px-2 sm:px-3 data-[state=active]:shadow-sm gap-1.5"
+                      >
                         <Smartphone className="w-3.5 h-3.5" />
-                        Shorts
+                        <span className="hidden sm:inline">
+                          {t("rss.shorts")}
+                        </span>
                         <Badge
                           variant="secondary"
-                          className="ml-1 h-5 px-1.5 text-[10px]"
+                          className="ml-0.5 h-4 px-1 text-[9px] bg-muted/50"
                         >
                           {typeCounts.short}
                         </Badge>
@@ -392,14 +427,15 @@ export function RssPage() {
                 </div>
 
                 {newTopItems.length > 0 && (
-                  <div className="ml-auto">
+                  <div className="shrink-0">
                     <Button
                       onClick={handleDownloadAllNewTop}
-                      variant="outline"
+                      variant="default"
                       size="sm"
+                      className="h-9 rounded-xl shadow-sm text-xs font-semibold w-full sm:w-auto"
                     >
                       <DownloadCloud className="w-4 h-4 mr-2" />
-                      Download All New ({newTopItems.length})
+                      {t("rss.downloadAllNew")} ({newTopItems.length})
                     </Button>
                   </div>
                 )}
@@ -479,77 +515,83 @@ function ChannelTab({
 
   return (
     <DropdownMenu>
-      <div className="relative flex flex-col items-center gap-1.5 min-w-[60px]">
+      <div className="relative flex flex-col items-center gap-2 min-w-[64px]">
         <DropdownMenuTrigger asChild>
           <button
             onClick={onClick}
-            className={`flex flex-col items-center gap-1.5 transition-all ${
-              isActive ? "opacity-100" : "opacity-60 hover:opacity-90"
+            className={`flex flex-col items-center gap-2 transition-all group ${
+              isActive
+                ? "opacity-100 scale-100"
+                : "opacity-60 hover:opacity-100 scale-95 hover:scale-100"
             }`}
           >
             <div className="relative">
               {isSyncing && (
                 <svg
-                  className="absolute -inset-1 w-14 h-14 pointer-events-none"
-                  viewBox="0 0 56 56"
+                  className="absolute -inset-1.5 w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] pointer-events-none"
+                  viewBox="0 0 76 76"
                   aria-hidden="true"
                 >
                   <circle
-                    cx="28"
-                    cy="28"
-                    r="25"
+                    cx="38"
+                    cy="38"
+                    r="34"
                     fill="none"
                     stroke="hsl(var(--muted-foreground) / 0.2)"
-                    strokeWidth="2"
+                    strokeWidth="3"
                   />
                   <circle
-                    cx="28"
-                    cy="28"
-                    r="25"
+                    cx="38"
+                    cy="38"
+                    r="34"
                     fill="none"
                     stroke="hsl(var(--primary))"
-                    strokeWidth="2"
+                    strokeWidth="3"
                     strokeLinecap="round"
                     strokeDasharray={progressCircumference}
                     strokeDashoffset={progressOffset}
-                    transform="rotate(-90 28 28)"
+                    transform="rotate(-90 38 38)"
                   />
                 </svg>
               )}
               {feed.channelAvatar ? (
-                <img
-                  src={feed.channelAvatar}
-                  alt={feed.channelName || feed.title}
-                  className={`w-12 h-12 rounded-full object-cover ${
-                    isActive
-                      ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
-                      : ""
-                  }`}
-                />
+                <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-full overflow-hidden shadow-sm group-hover:shadow-md transition-shadow">
+                  <img
+                    src={feed.channelAvatar}
+                    alt={feed.channelName || feed.title}
+                    className="w-full h-full object-cover"
+                  />
+                  {isActive && (
+                    <div className="absolute inset-0 ring-2 ring-primary ring-inset rounded-full" />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
+                </div>
               ) : (
                 <div
-                  className={`w-12 h-12 rounded-full bg-muted flex items-center justify-center text-sm font-bold ${
+                  className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-muted/80 flex items-center justify-center text-lg font-bold shadow-sm transition-all ${
                     isActive
-                      ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
-                      : ""
+                      ? "ring-2 ring-primary ring-inset text-primary bg-primary/10"
+                      : "group-hover:bg-muted text-muted-foreground"
                   }`}
                 >
                   {(feed.channelName || feed.title || "?")[0]?.toUpperCase()}
                 </div>
               )}
               {hasNewItems && (
-                <CircleDot className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 text-green-500 fill-green-500" />
+                <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-background shadow-sm" />
               )}
             </div>
-            <span className="text-[10px] font-medium truncate max-w-[60px]">
-              {feed.channelName || feed.title || "Channel"}
+            <span
+              className={`text-[11px] font-semibold truncate w-full text-center px-1 ${isActive ? "text-primary" : "text-foreground"}`}
+            >
+              {feed.channelName || feed.title || t("rss.channel")}
             </span>
           </button>
         </DropdownMenuTrigger>
 
         <DropdownMenuContent align="center" sideOffset={4}>
           <DropdownMenuItem disabled className="text-xs text-muted-foreground">
-            {itemCount} videos
+            {t("rss.videosCount", { count: itemCount })}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onRefresh}>
@@ -585,6 +627,7 @@ function FeedDetailView({
   onLoadMore: () => void;
   onPlay: (url: string, title: string, isShort: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const isShowingShorts =
     items.length > 0 && items.every((item) => inferVideoType(item) === "short");
 
@@ -592,11 +635,9 @@ function FeedDetailView({
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <RssIcon className="w-12 h-12 text-muted-foreground/20 mb-4" />
-        <p className="text-muted-foreground font-medium">No videos found</p>
+        <p className="text-muted-foreground font-medium">{t("rss.noVideos")}</p>
         <p className="text-sm text-muted-foreground/60 mt-1">
-          {showAll
-            ? "Check your feeds to load new videos"
-            : "Click refresh to check for new videos"}
+          {showAll ? t("rss.checkFeeds") : t("rss.clickRefresh")}
         </p>
       </div>
     );
@@ -620,7 +661,10 @@ function FeedDetailView({
         {items.length < totalCount && (
           <div className="flex justify-center">
             <Button variant="outline" onClick={onLoadMore}>
-              Load more ({items.length}/{totalCount})
+              {t("rss.loadMoreCount", {
+                loaded: items.length,
+                total: totalCount,
+              })}
             </Button>
           </div>
         )}
@@ -630,7 +674,7 @@ function FeedDetailView({
 
   return (
     <div className="pb-6 space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
         {items.map((item) => (
           <VideoCard
             key={item.id}
@@ -642,9 +686,16 @@ function FeedDetailView({
         ))}
       </div>
       {items.length < totalCount && (
-        <div className="flex justify-center">
-          <Button variant="outline" onClick={onLoadMore}>
-            Load more ({items.length}/{totalCount})
+        <div className="flex justify-center pt-4">
+          <Button
+            variant="outline"
+            onClick={onLoadMore}
+            className="rounded-xl h-10 px-6 font-medium bg-background/50 backdrop-blur-sm"
+          >
+            {t("rss.loadMoreCount", {
+              loaded: items.length,
+              total: totalCount,
+            })}
           </Button>
         </div>
       )}
@@ -711,7 +762,7 @@ const VideoCard = memo(function VideoCard({
   };
 
   return (
-    <div className="group rounded-xl overflow-hidden border border-border/50 bg-card hover:border-border transition-all hover:shadow-md">
+    <div className="group rounded-[20px] overflow-hidden border border-border/50 dark:border-white/10 bg-card/60 backdrop-blur-md hover:border-border transition-all hover:shadow-md">
       {/* Thumbnail */}
       <div className="relative aspect-video bg-muted">
         {item.thumbnail ? (
@@ -772,26 +823,30 @@ const VideoCard = memo(function VideoCard({
 
         {/* Date badge */}
         <div className="absolute bottom-2 right-2">
-          <span className="bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded">
-            {formatDate(item.publishedAt)}
+          <span className="bg-black/60 backdrop-blur-md text-white font-medium text-[10px] px-2 py-1 rounded-md shadow-sm">
+            {formatDate(item.publishedAt, t)}
           </span>
         </div>
       </div>
 
       {/* Info */}
-      <div className="p-3">
-        <h3 className="text-sm font-medium line-clamp-2 leading-snug">
+      <div className="p-3 sm:p-4 bg-card/40 backdrop-blur-sm">
+        <h3 className="text-sm sm:text-base font-bold line-clamp-2 leading-snug tracking-tight">
           {item.title}
         </h3>
-        <div className="flex items-center gap-2 mt-2">
+        <div className="flex items-center gap-2 mt-3">
           {feedAvatar ? (
-            <img src={feedAvatar} alt="" className="w-5 h-5 rounded-full" />
+            <img
+              src={feedAvatar}
+              alt=""
+              className="w-5 h-5 sm:w-6 sm:h-6 rounded-full border border-white/10"
+            />
           ) : (
-            <div className="w-5 h-5 rounded-full bg-muted flex items-center justify-center text-[8px] font-bold">
+            <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-muted flex items-center justify-center text-[9px] sm:text-[10px] font-bold text-muted-foreground shadow-sm">
               {(feedTitle || "?")[0]?.toUpperCase()}
             </div>
           )}
-          <span className="text-xs text-muted-foreground truncate flex-1">
+          <span className="text-xs sm:text-sm font-medium text-muted-foreground truncate flex-1">
             {feedTitle}
           </span>
         </div>
@@ -831,7 +886,7 @@ const ShortCard = memo(function ShortCard({
 
   return (
     <div
-      className="group relative rounded-xl overflow-hidden border border-border/50 bg-card hover:border-border transition-all hover:shadow-md cursor-pointer"
+      className="group relative rounded-[20px] overflow-hidden border border-border/50 dark:border-white/10 bg-card/60 backdrop-blur-md hover:border-border transition-all hover:shadow-md cursor-pointer"
       onClick={() => onPlay(item.url, item.title, true)}
     >
       {/* Thumbnail — 9:16 aspect ratio for Shorts */}
@@ -887,7 +942,7 @@ const ShortCard = memo(function ShortCard({
               ) : (
                 <Download className="w-3 h-3 mr-1" />
               )}
-              {downloading ? "..." : "Download"}
+              {downloading ? "..." : t("download.downloadNow")}
             </Button>
           </div>
         </div>
@@ -909,7 +964,7 @@ const ShortCard = memo(function ShortCard({
               {feedTitle}
             </span>
             <span className="text-white/50 text-[10px] ml-auto">
-              {formatDate(item.publishedAt)}
+              {formatDate(item.publishedAt, t)}
             </span>
           </div>
         </div>
@@ -957,15 +1012,14 @@ function AddFeedDialog({
           <div className="space-y-2">
             <Label>{t("rss.feedUrl")}</Label>
             <Input
-              placeholder="https://www.youtube.com/@channel or RSS URL"
+              placeholder={t("rss.feedUrlPlaceholder")}
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleAdd()}
               autoFocus
             />
             <p className="text-xs text-muted-foreground">
-              Supports YouTube channel URLs (@handle, /channel/), RSS/Atom feed
-              URLs
+              {t("rss.feedUrlHint")}
             </p>
           </div>
         </div>
@@ -1010,18 +1064,26 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
 
 /* ─── Helpers ──────────────────────────────────────────── */
 
-function formatDate(dateStr: string): string {
+function formatDate(
+  dateStr: string,
+  t?: (key: string, opts?: Record<string, unknown>) => string,
+): string {
   if (!dateStr) return "";
   try {
     const date = new Date(dateStr);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffH = Math.floor(diffMs / 3600000);
-    if (diffH < 1) return "Just now";
-    if (diffH < 24) return `${diffH}h ago`;
+    if (diffH < 1) return t ? t("rss.justNow") : "Just now";
+    if (diffH < 24)
+      return t ? t("rss.hoursAgo", { count: diffH }) : `${diffH}h ago`;
     const diffD = Math.floor(diffH / 24);
-    if (diffD < 7) return `${diffD}d ago`;
-    if (diffD < 30) return `${Math.floor(diffD / 7)}w ago`;
+    if (diffD < 7)
+      return t ? t("rss.daysAgo", { count: diffD }) : `${diffD}d ago`;
+    if (diffD < 30)
+      return t
+        ? t("rss.weeksAgo", { count: Math.floor(diffD / 7) })
+        : `${Math.floor(diffD / 7)}w ago`;
     return date.toLocaleDateString(undefined, {
       month: "short",
       day: "numeric",

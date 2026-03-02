@@ -1,0 +1,46 @@
+name: Release v2
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v2.*"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package v2
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/v2.') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate v2 folder
+        run: |
+          test -f v2/youtube_downloader.py
+          test -f v2/requirements.txt
+          test -f v2/launcher.sh
+          test -f v2/launcher.bat
+
+      - name: Create portable archives
+        run: |
+          mkdir -p release-assets
+          cd v2
+          zip -r ../release-assets/YTDL-v2-windows.zip .
+          tar -czf ../release-assets/YTDL-v2-unix.tar.gz .
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v2.')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          generate_release_notes: true
+          body_path: .github/release-notes-v2.md
+          files: |
+            release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

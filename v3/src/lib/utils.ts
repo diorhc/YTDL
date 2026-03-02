@@ -30,11 +30,6 @@ export function formatDuration(totalSeconds?: number): string {
     : `${minutes}:${paddedSeconds}`;
 }
 
-export function formatSpeed(bytesPerSecond?: number): string {
-  if (!bytesPerSecond || bytesPerSecond <= 0) return "-";
-  return `${formatBytes(bytesPerSecond)}/s`;
-}
-
 export function formatTimeAgo(date: Date | string): string {
   const now = new Date();
   const d = typeof date === "string" ? new Date(date) : date;

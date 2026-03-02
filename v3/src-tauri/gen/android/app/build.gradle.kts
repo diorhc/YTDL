@@ -64,10 +64,13 @@ android {
             isDebuggable = true
             isJniDebuggable = true
             isMinifyEnabled = false
-            packaging {                jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
+            packaging {
+                jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
                 jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")
                 jniLibs.keepDebugSymbols.add("*/x86/*.so")
                 jniLibs.keepDebugSymbols.add("*/x86_64/*.so")
+                // Prevent stripping of bundled tool binaries (they are ELF executables, not JNI libraries)
+                jniLibs.useLegacyPackaging = true
             }
         }
         getByName("release") {
@@ -83,10 +86,17 @@ android {
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
                     .toList().toTypedArray()
             )
+            packaging {
+                jniLibs.useLegacyPackaging = true
+            }
         }
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures {
         buildConfig = true
@@ -108,3 +118,17 @@ dependencies {
 }
 
 apply(from = "tauri.build.gradle.kts")
+
+tasks.named("preBuild") {
+    doFirst {
+        val abiDir = file("src/main/jniLibs/arm64-v8a")
+        val required = listOf("libytdlp.so", "libffmpeg.so", "libffprobe.so")
+        val missing = required.filter { !file("${abiDir.path}/$it").exists() }
+        if (missing.isNotEmpty()) {
+            throw GradleException(
+                "Missing bundled Android tool binaries in ${abiDir.path}: ${missing.joinToString(", ")}. " +
+                    "Run: npm run android:libs"
+            )
+        }
+    }
+}

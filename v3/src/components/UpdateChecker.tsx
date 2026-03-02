@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { commands } from "@/lib/tauri";
 import {
   Dialog,
@@ -26,6 +27,7 @@ interface UpdateCheckResult {
 }
 
 export function UpdateChecker() {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [checking, setChecking] = useState(true);
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
@@ -49,7 +51,7 @@ export function UpdateChecker() {
       try {
         ytdlpCurrent = await commands.getYtdlpVersion();
       } catch (err) {
-        console.error("yt-dlp not installed:", err);
+        console.error("yt-dlp version check failed:", err);
       }
 
       try {
@@ -58,6 +60,8 @@ export function UpdateChecker() {
         console.error("Failed to check yt-dlp latest:", err);
       }
 
+      // Only show update if both versions are available and they differ
+      // Don't treat "version check failed" as "needs update" — it may be a permission issue
       const ytdlpNeedsUpdate =
         ytdlpCurrent && ytdlpLatest && ytdlpCurrent !== ytdlpLatest;
 
@@ -68,7 +72,7 @@ export function UpdateChecker() {
       try {
         ffmpegCurrent = await commands.getFfmpegVersion();
       } catch (err) {
-        console.error("ffmpeg not installed:", err);
+        console.error("ffmpeg version check failed:", err);
       }
 
       try {
@@ -81,11 +85,15 @@ export function UpdateChecker() {
         ytdlp: {
           current: ytdlpCurrent,
           latest: ytdlpLatest,
-          needsUpdate: !!ytdlpNeedsUpdate || !ytdlpCurrent,
+          // Only show update when we have both versions and they differ.
+          // If version couldn't be retrieved (permission denied, not installed),
+          // the Setup page handles that — not the update checker.
+          needsUpdate: !!ytdlpNeedsUpdate,
         },
         ffmpeg: {
           current: ffmpegCurrent,
-          hasUpdate: ffmpegHasUpdate || !ffmpegCurrent,
+          // Only show ffmpeg update if the update check API explicitly says so
+          hasUpdate: ffmpegHasUpdate,
         },
       };
 
@@ -112,11 +120,11 @@ export function UpdateChecker() {
         setUpdateProgress((prev) => ({ ...prev, ytdlp: "updating" }));
         await commands.updateYtdlp();
         setUpdateProgress((prev) => ({ ...prev, ytdlp: "done" }));
-        toast.success("yt-dlp updated successfully");
+        toast.success(t("update.ytdlpSuccess"));
       } catch (err) {
         console.error("yt-dlp update failed:", err);
         setUpdateProgress((prev) => ({ ...prev, ytdlp: "error" }));
-        toast.error(`yt-dlp update failed: ${err}`);
+        toast.error(t("update.ytdlpFailed", { error: String(err) }));
       }
     }
 
@@ -126,23 +134,29 @@ export function UpdateChecker() {
         setUpdateProgress((prev) => ({ ...prev, ffmpeg: "updating" }));
         await commands.updateFfmpeg();
         setUpdateProgress((prev) => ({ ...prev, ffmpeg: "done" }));
-        toast.success("ffmpeg updated successfully");
+        toast.success(t("update.ffmpegSuccess"));
       } catch (err) {
         console.error("ffmpeg update failed:", err);
         setUpdateProgress((prev) => ({ ...prev, ffmpeg: "error" }));
-        toast.error(`ffmpeg update failed: ${err}`);
+        toast.error(t("update.ffmpegFailed", { error: String(err) }));
       }
     }
 
     setUpdating(false);
 
-    // Close dialog if all updates successful
-    if (
-      (!updateInfo.ytdlp.needsUpdate || updateProgress.ytdlp === "done") &&
-      (!updateInfo.ffmpeg.hasUpdate || updateProgress.ffmpeg === "done")
-    ) {
-      setTimeout(() => setOpen(false), 1500);
-    }
+    // Close dialog if all updates were successful.
+    // We read from the `current` state via the functional form since
+    // React state updates are async and the local `updateProgress`
+    // variable is stale inside this handler.
+    setUpdateProgress((cur) => {
+      const allDone =
+        (!updateInfo.ytdlp.needsUpdate || cur.ytdlp === "done") &&
+        (!updateInfo.ffmpeg.hasUpdate || cur.ffmpeg === "done");
+      if (allDone) {
+        setTimeout(() => setOpen(false), 1500);
+      }
+      return cur;
+    });
   };
 
   if (checking || !updateInfo) {
@@ -153,11 +167,8 @@ export function UpdateChecker() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Component Updates Available</DialogTitle>
-          <DialogDescription>
-            New versions of components are available. Update now to get the
-            latest features and fixes.
-          </DialogDescription>
+          <DialogTitle>{t("update.title")}</DialogTitle>
+          <DialogDescription>{t("update.description")}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
@@ -169,7 +180,7 @@ export function UpdateChecker() {
                 <div className="text-sm text-muted-foreground">
                   {updateInfo.ytdlp.current
                     ? `${updateInfo.ytdlp.current} → ${updateInfo.ytdlp.latest}`
-                    : "Not installed"}
+                    : t("update.notInstalled")}
                 </div>
               </div>
               <div>
@@ -195,7 +206,7 @@ export function UpdateChecker() {
               <div className="flex-1">
                 <div className="font-medium">ffmpeg</div>
                 <div className="text-sm text-muted-foreground">
-                  {updateInfo.ffmpeg.current || "Not installed"}
+                  {updateInfo.ffmpeg.current || t("update.notInstalled")}
                 </div>
               </div>
               <div>
@@ -219,7 +230,7 @@ export function UpdateChecker() {
             <div className="space-y-2">
               <Progress value={33} className="h-2" />
               <p className="text-xs text-center text-muted-foreground">
-                Updating components...
+                {t("update.updatingComponents")}
               </p>
             </div>
           )}
@@ -231,18 +242,18 @@ export function UpdateChecker() {
             onClick={() => setOpen(false)}
             disabled={updating}
           >
-            Skip
+            {t("update.skip")}
           </Button>
           <Button onClick={handleUpdate} disabled={updating}>
             {updating ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Updating...
+                {t("update.updating")}
               </>
             ) : (
               <>
                 <Download className="w-4 h-4 mr-2" />
-                Update Now
+                {t("update.updateNow")}
               </>
             )}
           </Button>

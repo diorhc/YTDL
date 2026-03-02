@@ -50,22 +50,14 @@ pub async fn start_playlist_download(
 
     {
         let db_lock = db.lock().map_err(|e| e.to_string())?;
-        let downloads = db_lock.get_downloads().map_err(|e| e.to_string())?;
-        let format_to_check = format.as_deref().unwrap_or("");
 
         for entry in playlist_info.entries.iter() {
             if entry.index < start || entry.index > end {
                 continue;
             }
 
-            let duplicate = downloads.iter().any(|dl_item| {
-                dl_item["url"].as_str() == Some(&entry.url)
-                    && dl_item["formatId"].as_str().unwrap_or("") == format_to_check
-                    && (dl_item["status"].as_str() == Some("completed")
-                        || dl_item["status"].as_str() == Some("downloading")
-                        || dl_item["status"].as_str() == Some("queued"))
-            });
-            if duplicate {
+            // O(1) indexed lookup instead of O(n) in-memory scan
+            if db_lock.download_exists_by_url(&entry.url, "").unwrap_or(None).is_some() {
                 continue;
             }
 
@@ -83,12 +75,18 @@ pub async fn start_playlist_download(
         }
     }
 
+    // Limit concurrent playlist downloads to avoid spawning hundreds of yt-dlp processes
+    let concurrency = 3usize;
+    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(concurrency));
+
     for (id, url) in entries_to_start {
         let app_clone = app.clone();
         let db_clone = db.inner().clone();
         let dl_clone = dl.inner().clone();
         let format_clone = format.clone();
+        let sem = semaphore.clone();
         tokio::spawn(async move {
+            let _permit = sem.acquire().await;
             let _ = crate::commands::start_download_existing(
                 app_clone,
                 db_clone,

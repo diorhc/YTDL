@@ -1,10 +1,10 @@
-name: Release All Platforms
+name: Release v3 All Platforms
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - "v*"
+      - "v3.*"
 
 permissions:
   contents: write
@@ -135,7 +135,7 @@ jobs:
     name: Create Release
     needs: [desktop, android]
     runs-on: ubuntu-22.04
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v3.')
 
     steps:
       - name: Download all artifacts
@@ -181,7 +181,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          draft: false
           generate_release_notes: true
           files: release-assets/*
         env:

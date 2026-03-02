@@ -647,10 +647,6 @@ def index():
 @rate_limit(max_requests=15, window_seconds=60)
 def get_video_info():
     """Get video information efficiently with timeout handling."""
-
-    def timeout_handler(signum, frame):
-        raise TimeoutError("Video info request timed out")
-
     try:
         data = request.get_json()
         if not data or 'url' not in data:

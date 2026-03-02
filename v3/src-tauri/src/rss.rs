@@ -72,20 +72,19 @@ async fn resolve_youtube_channel_id(url: &str) -> AppResult<String> {
         .await
         .map_err(|e| AppError::Rss(format!("Failed to read YouTube page: {}", e)))?;
 
-    let patterns = [
-        r#""channelId":"(UC[0-9A-Za-z_-]{22})""#,
-        r#"browseId":"(UC[0-9A-Za-z_-]{22})""#,
-        r#"externalId":"(UC[0-9A-Za-z_-]{22})""#,
-        r#"itemprop=\"channelId\"\s+content=\"(UC[0-9A-Za-z_-]{22})\""#,
-    ];
+    use std::sync::OnceLock;
 
-    for pat in patterns {
-        let re = regex::Regex::new(pat)
-            .map_err(|e| AppError::Rss(format!("Regex error: {}", e)))?;
-        if let Some(caps) = re.captures(&body) {
-            if let Some(m) = caps.get(1) {
-                return Ok(m.as_str().to_string());
-            }
+    static RE_CHANNEL_ID: OnceLock<regex::Regex> = OnceLock::new();
+    let re = RE_CHANNEL_ID.get_or_init(|| {
+        // Combined pattern: matches channelId / browseId / externalId / itemprop variants
+        regex::Regex::new(
+            r#"(?:"channelId":"|browseId":"|externalId":"|itemprop="channelId"\s+content=")(UC[0-9A-Za-z_-]{22})""#
+        ).unwrap()
+    });
+
+    if let Some(caps) = re.captures(&body) {
+        if let Some(m) = caps.get(1) {
+            return Ok(m.as_str().to_string());
         }
     }
 
@@ -140,28 +139,91 @@ fn upload_date_to_iso(upload_date: &str) -> String {
 }
 
 async fn run_ytdlp_json(ytdlp: &str, target_url: &str, playlist_end: &str) -> AppResult<serde_json::Value> {
-    let output = download::create_hidden_command(ytdlp)
-        .args([
-            "-J",
-            "--flat-playlist",
-            "--no-warnings",
-            "--skip-download",
-            "--ignore-errors",
-            "--playlist-end",
-            playlist_end,
-            target_url,
-        ])
-        .output()
-        .await
-        .map_err(|e| AppError::Rss(format!("Failed to execute yt-dlp: {}", e)))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return Err(AppError::Rss(format!("yt-dlp failed: {}", stderr)));
+    // On Android, yt-dlp can only run inside Termux via RUN_COMMAND Intent.
+    #[cfg(target_os = "android")]
+    {
+        let _ = ytdlp; // Not used on Android — Termux has its own path
+        return run_ytdlp_json_termux(target_url, playlist_end).await;
     }
 
-    serde_json::from_slice::<serde_json::Value>(&output.stdout)
-        .map_err(|e| AppError::Rss(format!("Failed to parse yt-dlp JSON: {}", e)))
+    #[cfg(not(target_os = "android"))]
+    {
+        let output = download::create_hidden_command(ytdlp)
+            .args([
+                "-J",
+                "--flat-playlist",
+                "--no-warnings",
+                "--skip-download",
+                "--ignore-errors",
+                "--playlist-end",
+                playlist_end,
+                target_url,
+            ])
+            .output()
+            .await
+            .map_err(|e| AppError::Rss(format!("Failed to execute yt-dlp: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            return Err(AppError::Rss(format!("yt-dlp failed: {}", stderr)));
+        }
+
+        serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            .map_err(|e| AppError::Rss(format!("Failed to parse yt-dlp JSON: {}", e)))
+    }
+}
+
+/// Run yt-dlp JSON command via Termux RUN_COMMAND Intent (Android only).
+/// Writes output to shared storage, polls for result.
+#[cfg(target_os = "android")]
+async fn run_ytdlp_json_termux(target_url: &str, playlist_end: &str) -> AppResult<serde_json::Value> {
+    let (installed, has_perm) = crate::android_bridge::termux_info();
+    if !installed || !has_perm {
+        return Err(AppError::Rss(
+            "Termux not available. RSS feeds require Termux on Android.".to_string(),
+        ));
+    }
+
+    let check_dir = crate::download::android_shared_checks_dir();
+    let output_file = format!("{}/rss_{}.json", check_dir, uuid::Uuid::new_v4());
+    let _ = std::fs::remove_file(&output_file);
+
+    // Shell-escape the URL
+    let escaped_url = format!("'{}'", target_url.replace('\'', "'\\''"));
+    let command = format!(
+        "yt-dlp -J --flat-playlist --no-warnings --skip-download --ignore-errors --playlist-end {} {}",
+        playlist_end, escaped_url
+    );
+
+    match crate::android_bridge::run_termux_check(&command, &output_file) {
+        Ok(true) => {
+            // Poll for result (RSS can take a while for large channels)
+            for i in 0..120 {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                if let Ok(content) = std::fs::read_to_string(&output_file) {
+                    let trimmed = content.trim();
+                    // JSON response starts with { — wait until we have complete JSON
+                    if !trimmed.is_empty() && trimmed.starts_with('{') && trimmed.ends_with('}') {
+                        let _ = std::fs::remove_file(&output_file);
+                        return serde_json::from_str::<serde_json::Value>(trimmed)
+                            .map_err(|e| AppError::Rss(format!("Invalid JSON from Termux: {}", e)));
+                    }
+                    // If it's an error message (not JSON), return it
+                    if !trimmed.is_empty() && !trimmed.starts_with('{') && i > 10 {
+                        let _ = std::fs::remove_file(&output_file);
+                        return Err(AppError::Rss(format!("yt-dlp error: {}", trimmed)));
+                    }
+                }
+                if i > 0 && i % 20 == 0 {
+                    log::info!("[run_ytdlp_json_termux] Still waiting for Termux... {}s", i / 2);
+                }
+            }
+            let _ = std::fs::remove_file(&output_file);
+            Err(AppError::Rss("Timed out waiting for yt-dlp response from Termux (60s)".to_string()))
+        }
+        Ok(false) => Err(AppError::Rss("Failed to send command to Termux".to_string())),
+        Err(e) => Err(AppError::Rss(format!("Termux bridge error: {}", e))),
+    }
 }
 
 fn entry_thumbnail(entry: &serde_json::Value, video_id: &str) -> String {
@@ -182,10 +244,14 @@ async fn fetch_youtube_uploads_items(app: &AppHandle, channel_id: &str) -> AppRe
     let shorts_url = format!("https://www.youtube.com/channel/{}/shorts", channel_id);
     let videos_url = format!("https://www.youtube.com/channel/{}/videos", channel_id);
 
+    // Limit to 50 most recent per tab — enough for regular RSS checks.
+    // yt-dlp returns newest first, so this covers the latest uploads.
+    let limit = "50";
+
     let mut short_ids = std::collections::HashSet::new();
     let mut all_items = Vec::new();
 
-    if let Ok(shorts_json) = run_ytdlp_json(&ytdlp, &shorts_url, "5000").await {
+    if let Ok(shorts_json) = run_ytdlp_json(&ytdlp, &shorts_url, limit).await {
         if let Some(entries) = shorts_json["entries"].as_array() {
             for entry in entries {
                 let id = match entry["id"].as_str().or_else(|| entry["url"].as_str()) {
@@ -211,12 +277,12 @@ async fn fetch_youtube_uploads_items(app: &AppHandle, channel_id: &str) -> AppRe
         }
     }
 
-    let videos_json = match run_ytdlp_json(&ytdlp, &videos_url, "5000").await {
+    let videos_json = match run_ytdlp_json(&ytdlp, &videos_url, limit).await {
         Ok(json) => Ok(json),
         Err(_) => {
             if let Some(uploads_id) = uploads_playlist_id(channel_id) {
                 let playlist_url = format!("https://www.youtube.com/playlist?list={}", uploads_id);
-                run_ytdlp_json(&ytdlp, &playlist_url, "5000").await
+                run_ytdlp_json(&ytdlp, &playlist_url, limit).await
             } else {
                 Err(AppError::Rss("No uploads playlist fallback available".to_string()))
             }

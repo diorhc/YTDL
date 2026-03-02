@@ -45,4 +45,10 @@ impl serde::Serialize for AppError {
     }
 }
 
+impl From<String> for AppError {
+    fn from(msg: String) -> Self {
+        AppError::Other(msg)
+    }
+}
+
 pub type AppResult<T> = Result<T, AppError>;

@@ -1,6 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Storage permissions for saving downloads to user-accessible locations -->
+    <!-- READ_EXTERNAL_STORAGE / WRITE_EXTERNAL_STORAGE: required on Android ≤ 9 -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <!-- Android 11+ (API 30+): full file access needed to exchange files with Termux
+         (check output files, download scripts, downloaded media). Without this,
+         the FUSE layer blocks reads/writes to /sdcard/ for files owned by other apps. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <!-- Android 13+ granular media permissions -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- Termux RunCommand integration: allows this app to send commands to Termux
+         Requires the user to enable "allow-external-apps = true" in Termux properties
+         (~/.termux/termux.properties after running "termux-setup-storage") -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+
+    <!-- Notification permission for Android 13+ (download progress, RSS alerts) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Package visibility: declare Termux so we can query its installation
+         status and start its RunCommandService on Android 11+ (API 30+).
+         Without this, PackageManager.getPackageInfo("com.termux") returns
+         NameNotFoundException and startService() may silently fail. -->
+    <queries>
+        <package android:name="com.termux" />
+    </queries>
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -9,6 +42,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.ytdl"
+        android:requestLegacyExternalStorage="true"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"

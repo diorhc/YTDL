@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
+
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -38,32 +38,7 @@ import {
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "sonner";
-
-interface TranscriptItem {
-  id: string;
-  title: string;
-  source: "url" | "file";
-  status: "pending" | "processing" | "completed" | "error";
-  progress: number;
-  text?: string;
-  language?: string;
-  duration?: string;
-  createdAt: string;
-  error?: string;
-}
-
-interface RawTranscriptItem {
-  id?: string;
-  title?: string;
-  source?: string;
-  status?: string;
-  progress?: number;
-  text?: string;
-  language?: string;
-  durationSecs?: number;
-  createdAt?: string;
-  error?: string;
-}
+import type { TranscriptItem, RawTranscriptItem } from "@/lib/tauri";
 
 interface TranscriptProgressPayload {
   id: string;
@@ -84,6 +59,32 @@ function normalizeTranscriptStatus(status?: string): TranscriptItem["status"] {
     return status;
   }
   return "pending";
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard might be unavailable
+    }
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      title="Copy to clipboard"
+      className="flex-shrink-0 p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+    >
+      {copied ? (
+        <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+      ) : (
+        <Copy className="w-3.5 h-3.5" />
+      )}
+    </button>
+  );
 }
 
 export function TranscribePage() {
@@ -128,26 +129,36 @@ export function TranscribePage() {
   }, [mapTranscript]);
 
   useEffect(() => {
-    refreshTranscripts();
-    commands.getSettings().then((settings) => {
-      setProvider((settings.transcribe_provider as "api" | "local") || "api");
-      setApiKey(settings.openai_api_key || "");
-      setApiModel(settings.openai_model || "whisper-1");
-      const storedModel = settings.local_model_id || "whisper-base";
-      const resolvedModel = LOCAL_MODELS.some((m) => m.id === storedModel)
-        ? storedModel
-        : "whisper-base";
-      setSelectedLocalModel(resolvedModel);
-      const configured = settings.transcription_configured === "true";
-      setIsConfigured(configured);
-      if (!configured) {
-        setShowSetupDialog(true);
-      }
-    });
+    refreshTranscripts().catch((err) =>
+      console.error("Failed to load transcripts:", err),
+    );
+    commands
+      .getSettings()
+      .then((settings) => {
+        const storedProvider =
+          (settings.transcribe_provider as "api" | "local") || "api";
+        setProvider(storedProvider);
+        setApiKey(settings.openai_api_key || "");
+        setApiModel(settings.openai_model || "whisper-1");
+        const storedModel = settings.local_model_id || "whisper-base";
+        const resolvedModel = LOCAL_MODELS.some((m) => m.id === storedModel)
+          ? storedModel
+          : "whisper-base";
+        setSelectedLocalModel(resolvedModel);
+        const configured = settings.transcription_configured === "true";
+        setIsConfigured(configured);
+        if (!configured) {
+          setShowSetupDialog(true);
+        }
+      })
+      .catch((err) =>
+        console.error("Failed to load transcription settings:", err),
+      );
   }, [refreshTranscripts]);
 
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
+    let cancelled = false;
     listen<TranscriptProgressPayload>("transcription-progress", (event) => {
       const payload = event.payload;
       setItems((prev) =>
@@ -165,9 +176,14 @@ export function TranscribePage() {
         ),
       );
     }).then((unsub) => {
-      unlisten = unsub;
+      if (cancelled) {
+        unsub();
+      } else {
+        unlisten = unsub;
+      }
     });
     return () => {
+      cancelled = true;
       if (unlisten) unlisten();
     };
   }, []);
@@ -235,9 +251,9 @@ export function TranscribePage() {
       setUrl("");
       setActiveTab("history");
     } catch (err) {
-      toast.error(`Transcription failed to start: ${String(err)}`);
+      toast.error(t("transcribe.startFailed", { error: String(err) }));
     }
-  }, [url, provider, apiModel, selectedLocalModel, isConfigured]);
+  }, [url, provider, apiModel, selectedLocalModel, isConfigured, t]);
 
   const handleFileUpload = useCallback(async () => {
     if (!isConfigured) {
@@ -275,11 +291,11 @@ export function TranscribePage() {
           ...prev,
         ]);
       } catch (err) {
-        toast.error(`Failed to start transcription for file: ${String(err)}`);
+        toast.error(t("transcribe.fileStartFailed", { error: String(err) }));
       }
     }
     setActiveTab("history");
-  }, [provider, apiModel, selectedLocalModel, isConfigured]);
+  }, [provider, apiModel, selectedLocalModel, isConfigured, t]);
 
   const handleDeleteTranscript = useCallback(async (id: string) => {
     await commands.deleteTranscript(id);
@@ -305,54 +321,62 @@ export function TranscribePage() {
   }, []);
 
   return (
-    <div className="flex flex-col h-full p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">{t("transcribe.title")}</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+    <div className="flex flex-col h-full bg-background">
+      {/* Header */}
+      <div className="px-4 sm:px-6 pt-6 pb-2 sm:pb-4">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+          {t("transcribe.title")}
+        </h1>
+        <p className="text-sm text-muted-foreground font-medium mt-1">
           {t("transcribe.subtitle")}
         </p>
       </div>
 
-      <Card className="mb-4">
-        <CardContent className="p-3">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-3">
+      <div className="px-4 sm:px-6 mb-5">
+        <div className="relative overflow-hidden rounded-[24px] bg-card/60 backdrop-blur-md border border-border/50 dark:border-white/10 shadow-sm p-4 sm:p-5">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent pointer-events-none" />
+          <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
               {provider === "api" ? (
-                <div className="flex items-center gap-2">
-                  <Cloud className="w-4 h-4 text-blue-500" />
-                  <span className="text-sm font-medium">API Engine</span>
-                  <Badge variant="secondary" className="text-[10px]">
+                <div className="flex items-center gap-2 bg-blue-500/10 text-blue-500 px-3 py-1.5 rounded-xl border border-blue-500/20">
+                  <Cloud className="w-4 h-4" />
+                  <span className="text-xs font-semibold">
+                    {t("transcribe.apiEngine")}
+                  </span>
+                  <span className="text-[10px] bg-background/50 px-1.5 py-0.5 rounded font-medium">
                     {apiModel}
-                  </Badge>
+                  </span>
                 </div>
               ) : (
-                <div className="flex items-center gap-2">
-                  <HardDrive className="w-4 h-4 text-green-500" />
-                  <span className="text-sm font-medium">Local Engine</span>
-                  <Badge variant="secondary" className="text-[10px]">
+                <div className="flex items-center gap-2 bg-green-500/10 text-green-600 dark:text-green-400 px-3 py-1.5 rounded-xl border border-green-500/20">
+                  <HardDrive className="w-4 h-4" />
+                  <span className="text-xs font-semibold">
+                    {t("transcribe.localEngine")}
+                  </span>
+                  <span className="text-[10px] bg-background/50 px-1.5 py-0.5 rounded font-medium">
                     {LOCAL_MODELS.find((m) => m.id === selectedLocalModel)
                       ?.name || selectedLocalModel}
-                  </Badge>
+                  </span>
                 </div>
               )}
               {!isConfigured && (
-                <Badge variant="destructive" className="text-[10px]">
-                  Not configured
-                </Badge>
+                <span className="text-[10px] font-medium text-destructive bg-destructive/10 px-2 py-1 rounded-lg border border-destructive/20">
+                  {t("transcribe.notConfigured")}
+                </span>
               )}
             </div>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setShowSetupDialog(true)}
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto rounded-full h-10 shadow-sm border-border/50 bg-background/50 backdrop-blur-sm hover:bg-muted"
             >
-              <Settings2 className="w-3.5 h-3.5 mr-1.5" />
-              Settings
+              <Settings2 className="w-4 h-4 mr-2 text-muted-foreground" />
+              {t("settings.title")}
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Transcription Setup Dialog */}
       <TranscriptionSetupDialog
@@ -392,107 +416,129 @@ export function TranscribePage() {
         onSave={handleSaveSetup}
       />
 
-      <Tabs
-        value={activeTab}
-        onValueChange={setActiveTab}
-        className="flex-1 flex flex-col min-h-0"
-      >
-        <TabsList className="grid w-full grid-cols-2 gap-2">
-          <TabsTrigger value="new" className="w-full">
-            {t("transcribe.new")}
-          </TabsTrigger>
-          <TabsTrigger value="history" className="w-full">
-            {t("transcribe.history")}
-            {items.length > 0 && (
-              <Badge variant="secondary" className="ml-1.5 text-xs px-1.5 py-0">
-                {items.length}
-              </Badge>
-            )}
-          </TabsTrigger>
-        </TabsList>
+      <div className="px-4 sm:px-6 flex-1 flex flex-col min-h-0 pb-6">
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="flex-1 flex flex-col min-h-0"
+        >
+          <TabsList className="grid w-full grid-cols-2 gap-2 bg-muted/50 p-1 rounded-full mb-5">
+            <TabsTrigger
+              value="new"
+              className="w-full rounded-full data-[state=active]:bg-background data-[state=active]:shadow-sm"
+            >
+              {t("transcribe.new")}
+            </TabsTrigger>
+            <TabsTrigger
+              value="history"
+              className="w-full rounded-full data-[state=active]:bg-background data-[state=active]:shadow-sm"
+            >
+              {t("transcribe.history")}
+              {items.length > 0 && (
+                <span className="ml-1.5 text-[10px] font-bold bg-muted-foreground/20 text-muted-foreground px-1.5 py-0.5 rounded-full">
+                  {items.length}
+                </span>
+              )}
+            </TabsTrigger>
+          </TabsList>
 
-        {/* New Transcription */}
-        <TabsContent value="new" className="flex-1 mt-4">
-          <div className="max-w-xl mx-auto space-y-6 py-8">
-            <p className="text-center text-muted-foreground text-sm">
-              {t("transcribe.description")}
-            </p>
-
-            {/* URL Input */}
-            <Card>
-              <CardContent className="p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Link className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                  <p className="text-sm font-medium">
-                    {t("transcribe.fromUrl")}
-                  </p>
+          {/* New Transcription */}
+          <TabsContent
+            value="new"
+            className="flex-1 mt-0 data-[state=active]:animate-in data-[state=active]:fade-in-50 data-[state=active]:slide-in-from-bottom-2"
+          >
+            <div className="max-w-5xl mx-auto space-y-6 py-4 sm:py-8 px-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
+                {/* URL Input */}
+                <div className="relative overflow-hidden rounded-[20px] bg-card/60 backdrop-blur-md border border-border/50 dark:border-white/10 shadow-sm p-4 sm:p-5 hover:border-white/20 transition-colors">
+                  <div className="flex flex-col gap-5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                        <Link className="w-5 h-7" />
+                      </div>
+                      <p className="text-sm font-semibold">
+                        {t("transcribe.fromUrl")}
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      <Input
+                        value={url}
+                        onChange={(e) => setUrl(e.target.value)}
+                        placeholder={t("transcribe.urlPlaceholder")}
+                        onKeyDown={(e) =>
+                          e.key === "Enter" && handleTranscribeUrl()
+                        }
+                        className="flex-1 h-12 rounded-full bg-background/50 border-border/50 text-base focus-visible:ring-primary/50"
+                      />
+                      <Button
+                        onClick={handleTranscribeUrl}
+                        disabled={!url.trim()}
+                        className="h-12 rounded-full px-6 font-semibold shadow-sm w-full sm:w-auto"
+                      >
+                        <Mic className="w-4 h-4 mr-2" />
+                        {t("transcribe.start")}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    placeholder={t("transcribe.urlPlaceholder")}
-                    onKeyDown={(e) =>
-                      e.key === "Enter" && handleTranscribeUrl()
-                    }
-                  />
-                  <Button onClick={handleTranscribeUrl} disabled={!url.trim()}>
-                    <Mic className="w-4 h-4 mr-1.5" />
-                    {t("transcribe.start")}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
 
-            {/* File Upload */}
-            <Card>
-              <CardContent className="p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Upload className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                  <p className="text-sm font-medium">
-                    {t("transcribe.fromFile")}
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={handleFileUpload}
-                >
-                  <Upload className="w-4 h-4 mr-1.5" />
-                  {t("transcribe.selectFiles")}
-                </Button>
-                <p className="text-xs text-muted-foreground text-center">
-                  {t("transcribe.supportedFormats")}
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
+                {/* File Upload */}
+                <div className="relative overflow-hidden rounded-[20px] bg-card/60 backdrop-blur-md border border-border/50 dark:border-white/10 shadow-sm p-4 sm:p-5 hover:border-white/20 transition-colors">
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                        <Upload className="w-4 h-4" />
+                      </div>
+                      <p className="text-sm font-semibold">
+                        {t("transcribe.fromFile")}
+                      </p>
+                    </div>
 
-        {/* History */}
-        <TabsContent value="history" className="flex-1 mt-4 min-h-0">
-          {items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-              <Clock className="w-12 h-12 mb-3 opacity-30" />
-              <p className="text-sm">{t("transcribe.noHistory")}</p>
-            </div>
-          ) : (
-            <ScrollArea className="h-full">
-              <div className="space-y-3 pr-3">
-                {items.map((item) => (
-                  <TranscriptCard
-                    key={item.id}
-                    item={item}
-                    onCopy={handleCopyText}
-                    onDownload={handleDownloadText}
-                    onDelete={handleDeleteTranscript}
-                  />
-                ))}
+                    <div
+                      className="border-2 border-dashed border-border rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-muted/30 transition-colors"
+                      onClick={handleFileUpload}
+                    >
+                      <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+                        <Upload className="w-5 h-5 text-muted-foreground" />
+                      </div>
+                      <p className="font-semibold text-sm mb-1">
+                        {t("transcribe.selectFiles")}
+                      </p>
+                      <p className="text-xs text-muted-foreground/70 font-medium max-w-[200px]">
+                        {t("transcribe.supportedFormats")}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </ScrollArea>
-          )}
-        </TabsContent>
-      </Tabs>
+            </div>
+          </TabsContent>
+
+          {/* History */}
+          <TabsContent value="history" className="flex-1 mt-4 min-h-0">
+            {items.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+                <Clock className="w-12 h-12 mb-3 opacity-30" />
+                <p className="text-sm">{t("transcribe.noHistory")}</p>
+              </div>
+            ) : (
+              <ScrollArea className="h-full">
+                <div className="space-y-3 pr-3">
+                  {items.map((item) => (
+                    <TranscriptCard
+                      key={item.id}
+                      item={item}
+                      onCopy={handleCopyText}
+                      onDownload={handleDownloadText}
+                      onDelete={handleDeleteTranscript}
+                    />
+                  ))}
+                </div>
+              </ScrollArea>
+            )}
+          </TabsContent>
+        </Tabs>
+      </div>
     </div>
   );
 }
@@ -511,80 +557,100 @@ function TranscriptCard({
   const { t } = useTranslation();
 
   return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <Badge variant={item.source === "url" ? "default" : "secondary"}>
-                {item.source === "url" ? "URL" : t("transcribe.file")}
-              </Badge>
-              {item.status === "completed" && (
-                <Badge variant="success">
-                  <CheckCircle2 className="w-3 h-3 mr-1" />
-                  {t("common.done")}
-                </Badge>
-              )}
-              {item.status === "error" && (
-                <Badge variant="destructive">
-                  <AlertCircle className="w-3 h-3 mr-1" />
-                  {t("common.error")}
-                </Badge>
-              )}
-              {(item.status === "pending" || item.status === "processing") && (
-                <Badge variant="warning">
-                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                  {t("transcribe.processing")}
-                </Badge>
-              )}
-            </div>
-            <p className="text-sm font-medium truncate">{item.title}</p>
-            {item.language && (
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {t("transcribe.detectedLang")}: {item.language}
-              </p>
+    <div className="relative overflow-hidden rounded-[20px] bg-card/60 backdrop-blur-md border border-border/50 dark:border-white/10 shadow-sm p-4 hover:bg-card/80 transition-colors">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <Badge
+              variant={item.source === "url" ? "default" : "secondary"}
+              className="rounded-md px-1.5 py-0"
+            >
+              {item.source === "url" ? "URL" : t("transcribe.file")}
+            </Badge>
+            {item.status === "completed" && (
+              <span className="flex items-center text-[10px] font-medium text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded-md border border-green-500/20">
+                <CheckCircle2 className="w-3 h-3 mr-1" />
+                {t("common.done")}
+              </span>
+            )}
+            {item.status === "error" && (
+              <span className="flex items-center text-[10px] font-medium text-destructive bg-destructive/10 px-1.5 py-0.5 rounded-md border border-destructive/20">
+                <AlertCircle className="w-3 h-3 mr-1" />
+                {t("common.error")}
+              </span>
             )}
             {(item.status === "pending" || item.status === "processing") && (
-              <Progress value={item.progress} className="mt-2 h-1.5" />
+              <span className="flex items-center text-[10px] font-medium text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded-md border border-yellow-500/20">
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                {t("transcribe.processing")}
+              </span>
             )}
-            {item.status === "error" && item.error && (
-              <p className="text-xs text-destructive mt-2 line-clamp-3">
+          </div>
+          <p className="text-sm font-semibold truncate text-foreground mb-1">
+            {item.title}
+          </p>
+          {item.language && (
+            <p className="text-xs font-medium text-muted-foreground">
+              {t("transcribe.detectedLang")}:{" "}
+              <span className="text-foreground/80">{item.language}</span>
+            </p>
+          )}
+          {(item.status === "pending" || item.status === "processing") && (
+            <div className="mt-3">
+              <div className="flex justify-between text-[10px] text-muted-foreground mb-1 font-medium">
+                <span>{Math.round(item.progress)}%</span>
+              </div>
+              <Progress value={item.progress} className="h-1.5 bg-muted/50" />
+            </div>
+          )}
+          {item.status === "error" && item.error && (
+            <div className="mt-3 p-2 rounded-lg bg-destructive/10 border border-destructive/20">
+              <p className="text-xs font-medium text-destructive line-clamp-3">
                 {item.error}
               </p>
-            )}
-            {item.text && (
-              <p className="text-xs text-muted-foreground mt-2 line-clamp-3">
+            </div>
+          )}
+          {item.text && (
+            <div className="mt-3">
+              <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">
                 {item.text}
               </p>
-            )}
-          </div>
-
-          <div className="flex gap-1">
-            {item.status === "completed" && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onCopy(item.text)}
-                >
-                  <Copy className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onDownload(item)}
-                >
-                  <Download className="w-4 h-4" />
-                </Button>
-              </>
-            )}
-            <Button variant="ghost" size="sm" onClick={() => onDelete(item.id)}>
-              <Trash2 className="w-4 h-4" />
-            </Button>
-          </div>
+            </div>
+          )}
         </div>
-      </CardContent>
-    </Card>
+
+        <div className="flex flex-col gap-1 items-end shrink-0">
+          {item.status === "completed" && (
+            <div className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg hover:bg-muted"
+                onClick={() => onCopy(item.text)}
+              >
+                <Copy className="w-4 h-4 text-muted-foreground" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg hover:bg-muted"
+                onClick={() => onDownload(item)}
+              >
+                <Download className="w-4 h-4 text-muted-foreground" />
+              </Button>
+            </div>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-lg hover:bg-destructive/10 hover:text-destructive text-muted-foreground"
+            onClick={() => onDelete(item.id)}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -726,36 +792,48 @@ function TranscriptionSetupDialog({
   saving: boolean;
   onSave: () => Promise<void>;
 }) {
+  const { t } = useTranslation();
+  const manualInstallCommandMatch = setupError.match(
+    /Please install it manually(?: in Termux)?:\s*([^\n]+)/i,
+  );
+  const manualInstallCommand = manualInstallCommandMatch?.[1]?.trim() ?? "";
+  const setupErrorText = manualInstallCommand
+    ? setupError
+        .replace(/Please install it manually(?: in Termux)?:\s*([^\n]+)/i, "")
+        .trim()
+    : setupError;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Settings2 className="w-5 h-5" />
-            Transcription Setup
+            {t("transcribe.setupTitle")}
           </DialogTitle>
-          <DialogDescription>
-            Choose your transcription engine and configure it before getting
-            started.
-          </DialogDescription>
+          <DialogDescription>{t("transcribe.setupDesc")}</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-auto space-y-4 py-2">
           {/* Engine Selection */}
           <div>
-            <Label className="text-sm font-medium mb-2 block">Engine</Label>
+            <Label className="text-sm font-medium mb-2 block">
+              {t("transcribe.engine")}
+            </Label>
             <Tabs
               value={provider}
-              onValueChange={(v) => onProviderChange(v as "api" | "local")}
+              onValueChange={(v) => {
+                onProviderChange(v as "api" | "local");
+              }}
             >
               <TabsList className="grid grid-cols-2 w-full">
                 <TabsTrigger value="api" className="gap-2">
                   <Cloud className="w-4 h-4" />
-                  API (Cloud)
+                  {t("transcribe.apiCloud")}
                 </TabsTrigger>
                 <TabsTrigger value="local" className="gap-2">
                   <Cpu className="w-4 h-4" />
-                  Local (Offline)
+                  {t("transcribe.localOffline")}
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -765,13 +843,11 @@ function TranscriptionSetupDialog({
             <div className="space-y-4">
               <div className="rounded-lg border p-3 bg-blue-500/5">
                 <p className="text-xs text-muted-foreground">
-                  Uses cloud-based AI services for transcription. Requires an
-                  API key and internet connection. Fast and accurate, with
-                  per-usage billing.
+                  {t("transcribe.apiDesc")}
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label>OpenAI API Key</Label>
+                <Label>{t("transcribe.apiKeyLabel")}</Label>
                 <Input
                   type="password"
                   value={apiKey}
@@ -780,7 +856,7 @@ function TranscriptionSetupDialog({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Model</Label>
+                <Label>{t("transcribe.model")}</Label>
                 <Input
                   value={apiModel}
                   onChange={(e) => onApiModelChange(e.target.value)}
@@ -800,12 +876,12 @@ function TranscriptionSetupDialog({
                   ) : (
                     <Cloud className="w-3.5 h-3.5 mr-1.5" />
                   )}
-                  Test API
+                  {t("transcribe.testApi")}
                 </Button>
                 {apiCheckSuccess && (
                   <Badge variant="success">
                     <CheckCircle2 className="w-3 h-3 mr-1" />
-                    API OK
+                    {t("transcribe.apiOk")}
                   </Badge>
                 )}
               </div>
@@ -814,9 +890,7 @@ function TranscriptionSetupDialog({
             <div className="space-y-3">
               <div className="rounded-lg border p-3 bg-green-500/5">
                 <p className="text-xs text-muted-foreground">
-                  Runs entirely on your device — no internet needed, fully
-                  private. Choose a model below based on your needs and hardware
-                  capabilities.
+                  {t("transcribe.localDesc")}
                 </p>
               </div>
 
@@ -896,15 +970,29 @@ function TranscriptionSetupDialog({
                 </div>
               </ScrollArea>
               <p className="text-xs text-muted-foreground">
-                Local setup will download `whisper.cpp` runtime and selected
-                model automatically.
+                {t("transcribe.localSetupNote")}
               </p>
             </div>
           )}
 
           {setupError && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3">
-              <p className="text-xs text-destructive">{setupError}</p>
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 space-y-2">
+              <p className="text-xs text-destructive flex-1 break-words">
+                {setupErrorText}
+              </p>
+              {manualInstallCommand && (
+                <div className="space-y-1">
+                  <p className="text-[11px] text-muted-foreground">
+                    Manual command
+                  </p>
+                  <div className="flex items-start gap-1 rounded-md bg-muted/70 px-3 py-2">
+                    <pre className="flex-1 text-xs whitespace-pre-wrap break-all leading-relaxed text-foreground">
+                      {manualInstallCommand}
+                    </pre>
+                    <CopyButton text={manualInstallCommand} />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -915,14 +1003,14 @@ function TranscriptionSetupDialog({
             onClick={() => onOpenChange(false)}
             disabled={saving}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             onClick={() => void onSave()}
             disabled={saving || apiChecking}
           >
             {saving && <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />}
-            Save & Continue
+            {t("transcribe.saveAndContinue")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -1,6 +1,7 @@
 import { useAtom } from "jotai";
 import { useCallback, useEffect, useRef } from "react";
 import { commands, events } from "@/lib/tauri";
+import type { DownloadStatus } from "@/lib/tauri";
 import { downloadsAtom, downloadLoadingAtom } from "@/store/atoms";
 import { toast } from "sonner";
 
@@ -21,17 +22,15 @@ export function useDownloads() {
     }
   }, [setDownloads, setLoading]);
 
-  // Load downloads from database on mount
+  // Register event listeners BEFORE loading initial data to avoid race condition
+  // where events emitted between getDownloads() and listener registration are lost.
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
-    loadDownloads();
-  }, [loadDownloads]);
 
-  // Listen for download events
-  useEffect(() => {
     const unlisteners: (() => void)[] = [];
 
+    // 1. Register listeners first
     events
       .onDownloadProgress((evt) => {
         setDownloads((prev) =>
@@ -42,7 +41,7 @@ export function useDownloads() {
                   progress: evt.progress,
                   speed: evt.speed,
                   eta: evt.eta,
-                  status: "downloading",
+                  status: (evt.status as DownloadStatus) || "downloading",
                 }
               : d,
           ),
@@ -57,9 +56,11 @@ export function useDownloads() {
             d.id === evt.id
               ? {
                   ...d,
-                  status: "completed",
+                  status: "completed" as DownloadStatus,
                   progress: 100,
-                  filePath: evt.outputPath,
+                  filePath: evt.outputPath || d.filePath,
+                  speed: undefined,
+                  eta: undefined,
                 }
               : d,
           ),
@@ -79,8 +80,11 @@ export function useDownloads() {
       })
       .then((fn) => unlisteners.push(fn));
 
+    // 2. Then load initial data (listeners are already active)
+    loadDownloads();
+
     return () => unlisteners.forEach((fn) => fn());
-  }, [setDownloads]);
+  }, [setDownloads, loadDownloads]);
 
   const startDownload = useCallback(
     async (url: string, formatId?: string) => {

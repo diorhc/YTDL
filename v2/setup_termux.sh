@@ -24,7 +24,9 @@ pkg install -y python-numpy
 echo "🐍 Installing Python dependencies..."
 # Note: Do NOT use 'pip install --upgrade pip' in Termux!
 # numpy is installed via pkg, not pip (requires compilation)
-pip install Flask waitress yt-dlp moviepy colorama
+python -m pip install Flask waitress yt-dlp moviepy colorama
+echo "ℹ️  If you see 'Installing pip is forbidden', do NOT upgrade pip via pip."
+echo "ℹ️  Use: pkg upgrade python-pip"
 
 # Setup storage
 echo "📁 Setting up storage access..."

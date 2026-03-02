@@ -6,7 +6,7 @@ Flask>=3.1.2
 waitress>=3.0.2
 
 # YouTube downloading
-yt-dlp>=2025.12.08
+yt-dlp>=2026.02.21
 
 # Video processing (optional, for ultra mode)
 # FFmpeg is recommended for better quality and features

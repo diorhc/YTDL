@@ -2051,7 +2051,7 @@ def main():
     parser = argparse.ArgumentParser(description='Ultimate Multi-Platform Video Downloader')
     parser.add_argument('url', nargs='?', help='Video URL (YouTube, VK, Yandex, etc.)')
     parser.add_argument('-q', '--quality', default='best', 
-                       choices=['best', '4k', '1440p', '1080p', '720p', '480p', '360p'],
+                       choices=['best', '4k', '1440p', '1080p', '720p', '480p', '360p', '240p', '144p'],
                        help='Video quality (default: best)')
     parser.add_argument('-m', '--mode', default='auto', 
                        choices=['auto', 'ultra', 'standard'],
@@ -2064,10 +2064,25 @@ def main():
                        help='List available formats without downloading')
     parser.add_argument('--capabilities', action='store_true', 
                        help='Show downloader capabilities')
+    parser.add_argument('--trim-start', default=None,
+                       help='Trim start time in seconds (e.g. 90 or HH:MM:SS)')
+    parser.add_argument('--trim-end', default=None,
+                       help='Trim end time in seconds (e.g. 345 or HH:MM:SS)')
+    parser.add_argument('--audio-language', default=None,
+                       help='Select audio track language code (e.g. en, ru)')
+    parser.add_argument('--insecure-ssl', action='store_true',
+                       help='Disable SSL certificate verification')
     
     args = parser.parse_args()
     
-    downloader = YouTubeDownloader(args.download_path)
+    downloader = YouTubeDownloader(args.download_path, insecure_ssl=args.insecure_ssl)
+    
+    if args.audio_language:
+        downloader.audio_language = args.audio_language
+    if args.trim_start is not None:
+        downloader.trim_start = args.trim_start
+    if args.trim_end is not None:
+        downloader.trim_end = args.trim_end
     
     if args.capabilities:
         downloader.print_capabilities()

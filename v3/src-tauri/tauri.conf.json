@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' tauri: asset:; img-src 'self' data: https: http: asset: tauri: blob:; connect-src 'self' ipc: http://ipc.localhost https: http: tauri: asset:; style-src 'self' 'unsafe-inline' tauri: asset:; script-src 'self' tauri: asset:; media-src 'self' https: blob: data:; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; child-src 'self' https://www.youtube.com https://www.youtube-nocookie.com"
+      "csp": "default-src 'self' tauri: asset:; img-src 'self' data: https://i.ytimg.com https://yt3.ggpht.com https://yt3.googleusercontent.com https://*.ytimg.com asset: tauri: blob:; connect-src 'self' ipc: http://ipc.localhost https://api.github.com https://github.com https://api.openai.com https://huggingface.co https://www.gyan.dev https://www.youtube.com https://f-droid.org tauri: asset:; style-src 'self' 'unsafe-inline' tauri: asset:; script-src 'self' tauri: asset:; media-src 'self' https: blob: data:; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; child-src 'self' https://www.youtube.com https://www.youtube-nocookie.com"
     }
   },
   "bundle": {
@@ -61,7 +61,7 @@
   },
   "plugins": {
     "shell": {
-      "open": ".*"
+      "open": "^https?://"
     },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ5RTlFN0MxNjNBODUwMjMKUldRalVLaGp3ZWZwMlVwR0piNFlScjF0MVRNbm9QZUltVjIrc0V2V3gxRUV3UlJjUGE0V0htbGYK",

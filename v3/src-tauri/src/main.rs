@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    env_logger::init();
+    // Logging is initialized inside run() (env_logger for desktop, android_logger for Android)
     ytdl_lib::run();
 }
